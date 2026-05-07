@@ -123,9 +123,15 @@ STATE AND VARIABLE SAFETY RULES
 
 * ALWAYS declare new runtime state variables before using them in logic
 * ALWAYS verify timer and flag fields exist before wiring them into combat code
+* ALWAYS declare local variables before referencing them in branches or expressions
 * Prefer reusing an existing timer or flag when it already fits the behavior
 * Remove stale state references immediately after refactors
 * Verify new visual and combat reads match the variables declared in the script
+* NEVER reference an underscored runtime variable unless it is actually declared in the script
+* Keep exported fields and runtime state names consistent after refactors
+* When renaming a behavior field, update every read and write site in the same pass
+* Expose shared gameplay state through explicit getters or methods before wiring it into another script
+* Verify cross-script method calls exist on every intended target before using them
 
 
 ============================================================================

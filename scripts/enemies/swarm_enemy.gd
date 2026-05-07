@@ -35,8 +35,8 @@ const ATTACK_TWITCH_SCALE: Vector2 = Vector2(1.12, 0.90)
 @export var max_health: int = 2
 @export var gravity: float = 1100.0
 @export var jump_velocity: float = -360.0
-@export var detection_radius: float = 280.0
-@export var attack_range: float = 24.0
+@export var detection_radius: float = 260.0
+@export var attack_range: float = 22.0
 @export var move_speed: float = 112.0
 @export var chase_speed: float = 180.0
 @export var retreat_speed: float = 140.0
@@ -77,6 +77,11 @@ var _is_dying: bool = false
 var _is_elite: bool = false
 var _elite_type: StringName = &""
 var _elite_modifiers_applied: bool = false
+var _counterplay_chase_speed_multiplier: float = 1.0
+var _counterplay_retreat_speed_multiplier: float = 1.0
+var _counterplay_attack_cooldown_multiplier: float = 1.0
+var _counterplay_attack_damage_bonus: int = 0
+var _counterplay_attack_range_bonus: float = 0.0
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _player: Node2D = null
 var _debug_timer: float = 0.0
@@ -87,6 +92,7 @@ var _debug_timer: float = 0.0
 
 func _ready() -> void:
 	add_to_group("enemy")
+	add_to_group("swarm_enemy")
 	_apply_elite_modifiers()
 	_health = max_health
 	if _is_elite:
@@ -133,7 +139,7 @@ func _update_ai_state() -> void:
 		return
 
 	var distance_to_player: float = global_position.distance_to(_player.global_position)
-	if distance_to_player <= attack_range:
+	if distance_to_player <= _current_attack_range():
 		if _attack_cooldown_timer <= 0.0 or _state == STATE_ATTACK:
 			_state = STATE_ATTACK
 		else:
@@ -206,10 +212,10 @@ func _apply_movement() -> void:
 		target_speed = direction * move_speed
 		acceleration = 18.0
 	elif _state == STATE_CHASE:
-		target_speed = direction * chase_speed
+		target_speed = direction * chase_speed * _counterplay_chase_speed_multiplier
 		acceleration = 28.0
 	elif _state == STATE_RETREAT:
-		target_speed = direction * retreat_speed
+		target_speed = direction * retreat_speed * _counterplay_retreat_speed_multiplier
 		acceleration = 30.0
 	elif _state == STATE_ATTACK:
 		if _attack_windup_timer > 0.0:
@@ -230,6 +236,9 @@ func _apply_movement() -> void:
 
 	if _state == STATE_CHASE and is_on_floor() and _rng.randf() < 0.12:
 		velocity.y = jump_velocity
+
+func _current_attack_range() -> float:
+	return attack_range + _counterplay_attack_range_bonus
 
 	if _state == STATE_RETREAT and is_on_floor() and _rng.randf() < 0.10:
 		velocity.y = jump_velocity
@@ -290,9 +299,9 @@ func _resolve_contact_damage() -> void:
 		return
 
 	if _player.has_method("apply_contact_damage"):
-		_player.apply_contact_damage(attack_damage, global_position)
+		_player.apply_contact_damage(attack_damage + _counterplay_attack_damage_bonus, global_position)
 
-	_attack_cooldown_timer = attack_cooldown + ATTACK_RECOVERY_SECONDS
+	_attack_cooldown_timer = attack_cooldown * _counterplay_attack_cooldown_multiplier + ATTACK_RECOVERY_SECONDS
 	_attack_pending = false
 	_retreat_timer = RETREAT_SECONDS
 	_state = STATE_RETREAT
@@ -311,6 +320,9 @@ func take_projectile_hit(damage: int, knockback: Vector2) -> void:
 		return
 
 	_start_death_feedback()
+
+func get_current_health() -> int:
+	return _health
 
 func _start_death_feedback() -> void:
 	_is_dying = true
@@ -442,6 +454,35 @@ func _apply_elite_modifiers() -> void:
 		_:
 			_is_elite = false
 			_elite_type = &""
+
+# ============================================================================
+# COUNTERPLAY
+# ============================================================================
+
+func configure_counterplay(player_build_identity: StringName) -> void:
+	_counterplay_chase_speed_multiplier = 1.0
+	_counterplay_retreat_speed_multiplier = 1.0
+	_counterplay_attack_cooldown_multiplier = 1.0
+	_counterplay_attack_damage_bonus = 0
+	_counterplay_attack_range_bonus = 0.0
+
+	match player_build_identity:
+		&"mobility":
+			_counterplay_chase_speed_multiplier = 1.08
+			_counterplay_retreat_speed_multiplier = 1.04
+			_counterplay_attack_range_bonus = 2.0
+		&"aggression":
+			_counterplay_chase_speed_multiplier = 1.04
+			_counterplay_attack_cooldown_multiplier = 0.94
+			_counterplay_attack_damage_bonus = 1
+		&"ranged":
+			_counterplay_chase_speed_multiplier = 1.09
+			_counterplay_retreat_speed_multiplier = 1.02
+			_counterplay_attack_range_bonus = 2.0
+		&"momentum":
+			_counterplay_chase_speed_multiplier = 1.06
+			_counterplay_attack_cooldown_multiplier = 0.92
+			_counterplay_attack_damage_bonus = 1
 
 # ============================================================================
 # SCALING

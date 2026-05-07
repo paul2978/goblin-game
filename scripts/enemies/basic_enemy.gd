@@ -37,7 +37,7 @@ const ATTACK_LEAN_SCALE: Vector2 = Vector2(1.10, 0.92)
 @export var chase_speed: float = 125.0
 @export var gravity: float = 1100.0
 @export var jump_velocity: float = -300.0
-@export var detection_radius: float = 240.0
+@export var detection_radius: float = 228.0
 @export var lose_radius: float = 320.0
 @export var attack_range: float = 26.0
 @export var attack_damage: int = 8
@@ -82,6 +82,10 @@ var _is_dying: bool = false
 var _is_elite: bool = false
 var _elite_type: StringName = &""
 var _elite_modifiers_applied: bool = false
+var _counterplay_move_speed_multiplier: float = 1.0
+var _counterplay_chase_speed_multiplier: float = 1.0
+var _counterplay_attack_cooldown_multiplier: float = 1.0
+var _counterplay_attack_range_bonus: float = 0.0
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _player: Node2D = null
 
@@ -91,6 +95,7 @@ var _player: Node2D = null
 
 func _ready() -> void:
 	add_to_group("enemy")
+	add_to_group("melee_enemy")
 	_apply_elite_modifiers()
 	_health = max_health
 	if _is_elite:
@@ -215,6 +220,38 @@ func _apply_elite_modifiers() -> void:
 			_elite_type = &""
 
 # ============================================================================
+# COUNTERPLAY
+# ============================================================================
+
+func configure_counterplay(player_build_identity: StringName) -> void:
+	_counterplay_move_speed_multiplier = 1.0
+	_counterplay_chase_speed_multiplier = 1.0
+	_counterplay_attack_cooldown_multiplier = 1.0
+	_counterplay_attack_range_bonus = 0.0
+
+	match player_build_identity:
+		&"mobility":
+			_counterplay_move_speed_multiplier = 1.03
+			_counterplay_chase_speed_multiplier = 1.06
+			_counterplay_attack_cooldown_multiplier = 0.97
+			_counterplay_attack_range_bonus = 2.0
+		&"aggression":
+			_counterplay_move_speed_multiplier = 1.04
+			_counterplay_chase_speed_multiplier = 1.05
+			_counterplay_attack_cooldown_multiplier = 0.95
+			_counterplay_attack_range_bonus = 4.0
+		&"ranged":
+			_counterplay_move_speed_multiplier = 1.02
+			_counterplay_chase_speed_multiplier = 1.07
+			_counterplay_attack_cooldown_multiplier = 0.96
+			_counterplay_attack_range_bonus = 3.0
+		&"momentum":
+			_counterplay_move_speed_multiplier = 1.03
+			_counterplay_chase_speed_multiplier = 1.05
+			_counterplay_attack_cooldown_multiplier = 0.94
+			_counterplay_attack_range_bonus = 2.0
+
+# ============================================================================
 # SCALING
 # ============================================================================
 
@@ -276,7 +313,7 @@ func _update_ai_state() -> void:
 		return
 
 	var distance_to_player: float = global_position.distance_to(_player.global_position)
-	if distance_to_player <= attack_range:
+	if distance_to_player <= _current_attack_range():
 		if _attack_cooldown_timer <= 0.0 or _state == STATE_ATTACK:
 			_state = STATE_ATTACK
 		else:
@@ -338,11 +375,13 @@ func _apply_horizontal_movement() -> void:
 	var direction: int = _desired_direction()
 	var target_speed: float = 0.0
 	var acceleration: float = 14.0
+	var move_speed_value: float = move_speed * _counterplay_move_speed_multiplier
+	var chase_speed_value: float = chase_speed * _counterplay_chase_speed_multiplier
 
 	if _state == STATE_CHASE:
-		target_speed = direction * chase_speed
+		target_speed = direction * chase_speed_value
 	elif _state == STATE_IDLE:
-		target_speed = direction * move_speed
+		target_speed = direction * move_speed_value
 	elif _state == STATE_ATTACK:
 		if _attack_windup_timer > 0.0:
 			target_speed = 0.0
@@ -381,6 +420,9 @@ func _handle_obstacles() -> void:
 	if is_on_floor() and hit_wall and _rng.randf() <= blocked_jump_chance:
 		velocity.y = jump_velocity
 
+func _current_attack_range() -> float:
+	return attack_range + _counterplay_attack_range_bonus
+
 func _update_raycast_direction() -> void:
 	var horizontal_offset: float = 18.0 * _facing_direction
 	wall_ray_cast.target_position = Vector2(horizontal_offset, 0.0)
@@ -407,7 +449,7 @@ func _resolve_contact_damage() -> void:
 		return
 
 	var distance_to_player: float = global_position.distance_to(_player.global_position)
-	if distance_to_player > attack_range:
+	if distance_to_player > _current_attack_range():
 		return
 
 	if not _attack_pending:
@@ -423,7 +465,7 @@ func _resolve_contact_damage() -> void:
 	if _player.has_method("apply_contact_damage"):
 		_player.apply_contact_damage(attack_damage, global_position)
 
-	_attack_cooldown_timer = ATTACK_RECOVERY_SECONDS
+	_attack_cooldown_timer = ATTACK_RECOVERY_SECONDS + attack_cooldown * _counterplay_attack_cooldown_multiplier
 	_attack_pending = false
 	_attack_flash_timer = ATTACK_FLASH_TIME
 	_hit_flash_timer = HIT_FLASH_TIME
@@ -443,6 +485,9 @@ func take_projectile_hit(damage: int, knockback: Vector2) -> void:
 		return
 
 	_start_death_feedback()
+
+func get_current_health() -> int:
+	return _health
 
 func _start_death_feedback() -> void:
 	_is_dying = true

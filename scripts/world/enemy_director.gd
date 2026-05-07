@@ -10,6 +10,9 @@ const VIEW_MARGIN: Vector2 = Vector2(96.0, 64.0)
 const SPAWN_BODY_OFFSET: Vector2 = Vector2(0.0, -16.0)
 const RANGED_ENEMY_SCENE_PATH: String = "res://scenes/enemies/ranged_enemy.tscn"
 const SWARM_ENEMY_SCENE_PATH: String = "res://scenes/enemies/swarm_enemy.tscn"
+const MELEE_ENEMY_GROUP_NAME: StringName = &"melee_enemy"
+const RANGED_ENEMY_GROUP_NAME: StringName = &"ranged_enemy"
+const SWARM_ENEMY_GROUP_NAME: StringName = &"swarm_enemy"
 const MELEE_ENEMY_WEIGHT: float = 0.60
 const RANGED_ENEMY_WEIGHT: float = 0.25
 const SWARM_ENEMY_WEIGHT: float = 0.15
@@ -25,9 +28,47 @@ const RECOVERY_PENALTY_CAP: float = 2.5
 const COMBAT_INTENSITY_CAP: float = 4.0
 const RECOVERY_STATE_THRESHOLD: float = 1.3
 const LOW_PRESSURE_STATE_THRESHOLD: float = 2.8
-const HIGH_PRESSURE_STATE_THRESHOLD: float = 4.6
 const HIGH_PRESSURE_BURST_THRESHOLD: float = 4.0
 const HIGH_PRESSURE_BURST_CHANCE: float = 0.35
+const COMPOSITION_RECOVERY_INTERVAL_MULTIPLIER: float = 1.10
+const COMPOSITION_BUILD_INTERVAL_MULTIPLIER: float = 1.02
+const COMPOSITION_PRESSURE_INTERVAL_MULTIPLIER: float = 0.96
+const COMPOSITION_SPIKE_INTERVAL_MULTIPLIER: float = 0.90
+const RUN_STAGE_EARLY_SECONDS: float = 120.0
+const RUN_STAGE_MID_SECONDS: float = 300.0
+const RUN_STAGE_LATE_SECONDS: float = 540.0
+const RUN_STAGE_EARLY_INTERVAL_MULTIPLIER: float = 1.00
+const RUN_STAGE_MID_INTERVAL_MULTIPLIER: float = 0.92
+const RUN_STAGE_LATE_INTERVAL_MULTIPLIER: float = 0.84
+const RUN_STAGE_ENDLESS_INTERVAL_MULTIPLIER: float = 0.76
+const RUN_STAGE_EARLY_RECOVERY_GAIN_MULTIPLIER: float = 1.00
+const RUN_STAGE_MID_RECOVERY_GAIN_MULTIPLIER: float = 0.92
+const RUN_STAGE_LATE_RECOVERY_GAIN_MULTIPLIER: float = 0.80
+const RUN_STAGE_ENDLESS_RECOVERY_GAIN_MULTIPLIER: float = 0.68
+const RUN_STAGE_EARLY_RECOVERY_DECAY_MULTIPLIER: float = 1.00
+const RUN_STAGE_MID_RECOVERY_DECAY_MULTIPLIER: float = 1.08
+const RUN_STAGE_LATE_RECOVERY_DECAY_MULTIPLIER: float = 1.18
+const RUN_STAGE_ENDLESS_RECOVERY_DECAY_MULTIPLIER: float = 1.30
+const RUN_STAGE_EARLY_ELITE_MULTIPLIER: float = 1.00
+const RUN_STAGE_MID_ELITE_MULTIPLIER: float = 1.08
+const RUN_STAGE_LATE_ELITE_MULTIPLIER: float = 1.18
+const RUN_STAGE_ENDLESS_ELITE_MULTIPLIER: float = 1.28
+const RUN_STAGE_EARLY_SPAWN_BURST_CHANCE: float = 0.18
+const RUN_STAGE_MID_SPAWN_BURST_CHANCE: float = 0.24
+const RUN_STAGE_LATE_SPAWN_BURST_CHANCE: float = 0.32
+const RUN_STAGE_ENDLESS_SPAWN_BURST_CHANCE: float = 0.40
+const RUN_STAGE_EARLY_BUILD_THRESHOLD: float = 2.8
+const RUN_STAGE_MID_BUILD_THRESHOLD: float = 2.5
+const RUN_STAGE_LATE_BUILD_THRESHOLD: float = 2.2
+const RUN_STAGE_ENDLESS_BUILD_THRESHOLD: float = 2.0
+const RUN_STAGE_EARLY_PRESSURE_THRESHOLD: float = 4.6
+const RUN_STAGE_MID_PRESSURE_THRESHOLD: float = 4.3
+const RUN_STAGE_LATE_PRESSURE_THRESHOLD: float = 4.0
+const RUN_STAGE_ENDLESS_PRESSURE_THRESHOLD: float = 3.7
+const RECOVERY_WINDOW_SECONDS: float = 2.2
+const RECOVERY_WINDOW_INTERVAL_MULTIPLIER: float = 1.18
+const RECOVERY_WINDOW_MAX_ENEMY_PENALTY: int = 1
+const RECOVERY_WINDOW_PRESSURE_RELIEF: float = 0.60
 
 # ============================================================================
 # EXPORTED VARIABLES
@@ -60,7 +101,12 @@ var _recovery_pressure_buffer: float = 0.0
 var _burst_timer: float = 0.0
 var _last_active_enemy_count: int = 0
 var _player_level: int = 1
+var _player_build_identity: StringName = &"balanced"
 var _pacing_state: String = "recovery"
+var _encounter_composition: String = "recovery"
+var _run_stage: String = "early"
+var _tempo_relief_timer: float = 0.0
+var _last_spawn_zone_root: Node2D = null
 var _gameplay_root: Node2D = null
 var _enemy_spawn_root: Node2D = null
 var _spawn_zones_root: Node2D = null
@@ -110,44 +156,66 @@ func _physics_process(delta: float) -> void:
 
 func _update_player_reference() -> void:
 	if is_instance_valid(_player):
+		if _player.has_method("get_build_identity"):
+			_player_build_identity = StringName(_player.call("get_build_identity"))
 		return
 
 	_player = get_tree().get_first_node_in_group("player") as Node2D
 	if _player != null and _player.has_method("get_current_level"):
 		_player_level = int(_player.call("get_current_level"))
+	if _player != null and _player.has_method("get_build_identity"):
+		_player_build_identity = StringName(_player.call("get_build_identity"))
 
 func _update_director(delta: float) -> void:
 	_elapsed_time += delta
 	var active_enemy_count: int = _active_enemy_count()
 	var enemy_deaths: int = max(_last_active_enemy_count - active_enemy_count, 0)
+	_run_stage = _current_run_stage()
 	_update_combat_pressure(delta, active_enemy_count, enemy_deaths)
 	_update_recovery_pressure(delta, active_enemy_count, enemy_deaths)
+	_update_tempo_relief(delta, active_enemy_count, enemy_deaths)
 	_player_level = _current_player_level()
 	_pressure = _compute_pressure(active_enemy_count)
 	_pacing_state = _current_pacing_state(active_enemy_count)
+	_encounter_composition = _current_encounter_composition(active_enemy_count)
 	_spawn_timer -= delta
 	_burst_timer = max(_burst_timer - delta, 0.0)
 	_last_active_enemy_count = active_enemy_count
 
 func _update_combat_pressure(delta: float, active_enemy_count: int, enemy_deaths: int) -> void:
-	_recent_combat_intensity = max(_recent_combat_intensity - delta * combat_intensity_decay_rate, 0.0)
+	var combat_decay_multiplier: float = _current_run_stage_combat_decay_multiplier()
+	var combat_gain_multiplier: float = _current_run_stage_combat_gain_multiplier()
+	_recent_combat_intensity = max(_recent_combat_intensity - delta * combat_intensity_decay_rate * combat_decay_multiplier, 0.0)
 	if active_enemy_count >= 3:
-		_recent_combat_intensity = min(_recent_combat_intensity + delta * combat_intensity_gain_rate, COMBAT_INTENSITY_CAP)
+		_recent_combat_intensity = min(_recent_combat_intensity + delta * combat_intensity_gain_rate * combat_gain_multiplier, COMBAT_INTENSITY_CAP)
 
 	if active_enemy_count >= 5:
-		_recent_combat_intensity = min(_recent_combat_intensity + delta * 0.12, COMBAT_INTENSITY_CAP)
+		_recent_combat_intensity = min(_recent_combat_intensity + delta * 0.12 * combat_gain_multiplier, COMBAT_INTENSITY_CAP)
 
 	if enemy_deaths > 0:
-		_recent_combat_intensity = max(_recent_combat_intensity - float(enemy_deaths) * 0.12, 0.0)
+		_recent_combat_intensity = max(_recent_combat_intensity - float(enemy_deaths) * 0.12 * combat_decay_multiplier, 0.0)
 
 func _update_recovery_pressure(delta: float, active_enemy_count: int, enemy_deaths: int) -> void:
+	var recovery_gain_multiplier: float = _current_run_stage_recovery_gain_multiplier()
+	var recovery_decay_multiplier: float = _current_run_stage_recovery_decay_multiplier()
 	if active_enemy_count <= 1:
-		_recovery_pressure_buffer = min(_recovery_pressure_buffer + delta * recovery_gain_rate, RECOVERY_PENALTY_CAP)
+		_recovery_pressure_buffer = min(_recovery_pressure_buffer + delta * recovery_gain_rate * recovery_gain_multiplier, RECOVERY_PENALTY_CAP)
 	else:
-		_recovery_pressure_buffer = max(_recovery_pressure_buffer - delta * recovery_decay_rate, 0.0)
+		_recovery_pressure_buffer = max(_recovery_pressure_buffer - delta * recovery_decay_rate * recovery_decay_multiplier, 0.0)
 
 	if enemy_deaths > 0:
-		_recovery_pressure_buffer = min(_recovery_pressure_buffer + float(enemy_deaths) * 0.16, RECOVERY_PENALTY_CAP)
+		_recovery_pressure_buffer = min(_recovery_pressure_buffer + float(enemy_deaths) * 0.16 * recovery_decay_multiplier, RECOVERY_PENALTY_CAP)
+
+func _update_tempo_relief(delta: float, active_enemy_count: int, enemy_deaths: int) -> void:
+	_tempo_relief_timer = max(_tempo_relief_timer - delta, 0.0)
+
+	if enemy_deaths <= 0:
+		return
+
+	if active_enemy_count > 2:
+		return
+
+	_tempo_relief_timer = max(_tempo_relief_timer, RECOVERY_WINDOW_SECONDS)
 
 func _compute_pressure(active_enemy_count: int) -> float:
 	var elapsed_pressure: float = _elapsed_time * pressure_time_rate
@@ -155,8 +223,11 @@ func _compute_pressure(active_enemy_count: int) -> float:
 	var level_pressure: float = float(max(_player_level - 1, 0)) * pressure_level_weight
 	var intensity_pressure: float = _recent_combat_intensity
 	var recovery_relief: float = _recovery_pressure_buffer
+	var tempo_relief: float = 0.0
+	if _tempo_relief_timer > 0.0:
+		tempo_relief = RECOVERY_WINDOW_PRESSURE_RELIEF
 
-	var total_pressure: float = elapsed_pressure + enemy_pressure + level_pressure + intensity_pressure - recovery_relief
+	var total_pressure: float = elapsed_pressure + enemy_pressure + level_pressure + intensity_pressure - recovery_relief - tempo_relief
 	return max(total_pressure, 0.0)
 
 func _current_player_level() -> int:
@@ -165,30 +236,108 @@ func _current_player_level() -> int:
 
 	return 1
 
+func _current_player_build_identity() -> StringName:
+	if _player != null and _player.has_method("get_build_identity"):
+		return StringName(_player.call("get_build_identity"))
+
+	return _player_build_identity
+
+func _current_build_role_multiplier(enemy_scene: PackedScene) -> float:
+	if enemy_scene == null:
+		return 1.0
+
+	var build_identity: StringName = _current_player_build_identity()
+
+	if build_identity == &"mobility":
+		if enemy_scene == _ranged_enemy_scene:
+			return 1.08
+		if enemy_scene == _swarm_enemy_scene:
+			return 1.10
+		return 0.96
+
+	if build_identity == &"aggression":
+		if enemy_scene == _enemy_scene:
+			return 1.08
+		if enemy_scene == _ranged_enemy_scene:
+			return 0.98
+		return 0.96
+
+	if build_identity == &"ranged":
+		if enemy_scene == _swarm_enemy_scene:
+			return 1.10
+		if enemy_scene == _ranged_enemy_scene:
+			return 0.96
+		return 1.04
+
+	if build_identity == &"momentum":
+		if enemy_scene == _swarm_enemy_scene:
+			return 1.08
+		if enemy_scene == _ranged_enemy_scene:
+			return 1.02
+		return 1.00
+
+	return 1.0
+
+func _current_build_spawn_burst_multiplier() -> float:
+	var build_identity: StringName = _current_player_build_identity()
+
+	if build_identity == &"mobility":
+		return 1.05
+
+	if build_identity == &"aggression":
+		return 0.95
+
+	if build_identity == &"ranged":
+		return 1.08
+
+	if build_identity == &"momentum":
+		return 1.03
+
+	return 1.0
+
 func _active_enemy_count() -> int:
 	return get_tree().get_nodes_in_group("enemy").size()
+
+func _role_enemy_count(group_name: StringName) -> int:
+	return get_tree().get_nodes_in_group(group_name).size()
 
 func _current_spawn_interval() -> float:
 	var pressure_factor: float = 1.0 + _pressure * 0.20
 	var pacing_factor: float = _spawn_pacing_factor()
+	var composition_factor: float = _encounter_spawn_factor()
+	var stage_factor: float = _current_run_stage_interval_multiplier()
+	var recovery_factor: float = _current_recovery_window_interval_multiplier()
 	var interval: float = base_spawn_interval / pressure_factor
 	interval *= pacing_factor
+	interval *= composition_factor
+	interval *= stage_factor
+	interval *= recovery_factor
 	return max(minimum_spawn_interval, interval)
 
 func _current_max_enemies() -> int:
 	var time_bonus: int = int(floor(_elapsed_time / 45.0))
 	var level_bonus: int = int(floor(float(max(_player_level - 1, 0)) * 0.5))
 	var pressure_bonus: int = int(floor(_pressure * 0.75))
-	return clampi(base_max_enemies + time_bonus + level_bonus + pressure_bonus, base_max_enemies, max_enemy_cap)
+	var stage_bonus: int = _current_run_stage_max_enemy_bonus()
+	var recovery_penalty: int = 0
+	if _tempo_relief_timer > 0.0:
+		recovery_penalty = RECOVERY_WINDOW_MAX_ENEMY_PENALTY
+
+	return clampi(base_max_enemies + time_bonus + level_bonus + pressure_bonus + stage_bonus - recovery_penalty, base_max_enemies, max_enemy_cap)
 
 func _current_pacing_state(active_enemy_count: int) -> String:
+	var pressure_threshold: float = _current_run_stage_pressure_threshold()
+
+	if _tempo_relief_timer > 0.0 and active_enemy_count <= 2 and _pressure < pressure_threshold:
+		return "recovery"
+
 	if active_enemy_count <= 1 and _pressure < RECOVERY_STATE_THRESHOLD:
 		return "recovery"
 
 	if _pressure < LOW_PRESSURE_STATE_THRESHOLD:
 		return "low"
 
-	if _pressure < HIGH_PRESSURE_STATE_THRESHOLD:
+	if _pressure < pressure_threshold:
 		return "pressure"
 
 	return "high"
@@ -205,6 +354,95 @@ func _spawn_pacing_factor() -> float:
 			return 0.72
 		_:
 			return 1.0
+
+func _encounter_spawn_factor() -> float:
+	match _encounter_composition:
+		"recovery":
+			return COMPOSITION_RECOVERY_INTERVAL_MULTIPLIER
+		"build":
+			return COMPOSITION_BUILD_INTERVAL_MULTIPLIER
+		"pressure":
+			return COMPOSITION_PRESSURE_INTERVAL_MULTIPLIER
+		"spike":
+			return COMPOSITION_SPIKE_INTERVAL_MULTIPLIER
+		_:
+			return 1.0
+
+func _current_recovery_window_interval_multiplier() -> float:
+	if _tempo_relief_timer <= 0.0:
+		return 1.0
+
+	return RECOVERY_WINDOW_INTERVAL_MULTIPLIER
+
+func _current_run_stage() -> String:
+	if _elapsed_time < RUN_STAGE_EARLY_SECONDS:
+		return "early"
+
+	if _elapsed_time < RUN_STAGE_MID_SECONDS:
+		return "mid"
+
+	if _elapsed_time < RUN_STAGE_LATE_SECONDS:
+		return "late"
+
+	return "endless"
+
+func _current_run_stage_interval_multiplier() -> float:
+	match _run_stage:
+		"early":
+			return RUN_STAGE_EARLY_INTERVAL_MULTIPLIER
+		"mid":
+			return RUN_STAGE_MID_INTERVAL_MULTIPLIER
+		"late":
+			return RUN_STAGE_LATE_INTERVAL_MULTIPLIER
+		"endless":
+			return RUN_STAGE_ENDLESS_INTERVAL_MULTIPLIER
+		_:
+			return 1.0
+
+func _current_run_stage_recovery_gain_multiplier() -> float:
+	match _run_stage:
+		"early":
+			return RUN_STAGE_EARLY_RECOVERY_GAIN_MULTIPLIER
+		"mid":
+			return RUN_STAGE_MID_RECOVERY_GAIN_MULTIPLIER
+		"late":
+			return RUN_STAGE_LATE_RECOVERY_GAIN_MULTIPLIER
+		"endless":
+			return RUN_STAGE_ENDLESS_RECOVERY_GAIN_MULTIPLIER
+		_:
+			return 1.0
+
+func _current_run_stage_recovery_decay_multiplier() -> float:
+	match _run_stage:
+		"early":
+			return RUN_STAGE_EARLY_RECOVERY_DECAY_MULTIPLIER
+		"mid":
+			return RUN_STAGE_MID_RECOVERY_DECAY_MULTIPLIER
+		"late":
+			return RUN_STAGE_LATE_RECOVERY_DECAY_MULTIPLIER
+		"endless":
+			return RUN_STAGE_ENDLESS_RECOVERY_DECAY_MULTIPLIER
+		_:
+			return 1.0
+
+func _current_run_stage_combat_gain_multiplier() -> float:
+	return _current_run_stage_recovery_gain_multiplier()
+
+func _current_run_stage_combat_decay_multiplier() -> float:
+	return _current_run_stage_recovery_decay_multiplier()
+
+func _current_run_stage_max_enemy_bonus() -> int:
+	match _run_stage:
+		"early":
+			return 0
+		"mid":
+			return 1
+		"late":
+			return 2
+		"endless":
+			return 3
+		_:
+			return 0
 
 # ============================================================================
 # SPAWNING
@@ -248,6 +486,9 @@ func _try_spawn_enemy() -> void:
 			if elite_type != &"" and enemy_instance.has_method("configure_elite"):
 				enemy_instance.call("configure_elite", elite_type)
 
+		if enemy_instance.has_method("configure_counterplay"):
+			enemy_instance.call("configure_counterplay", _current_player_build_identity())
+
 		enemy_instance.position = _gameplay_root.to_local(spawn_marker.global_position)
 		_gameplay_root.add_child(enemy_instance)
 		spawned_any_enemy = true
@@ -258,20 +499,51 @@ func _try_spawn_enemy() -> void:
 		_spawn_timer = max(_current_spawn_interval(), base_spawn_interval * 0.75)
 
 func _select_followup_enemy_scene(primary_scene: PackedScene) -> PackedScene:
+	var melee_count: int = _role_enemy_count(MELEE_ENEMY_GROUP_NAME)
+	var ranged_count: int = _role_enemy_count(RANGED_ENEMY_GROUP_NAME)
+	var swarm_count: int = _role_enemy_count(SWARM_ENEMY_GROUP_NAME)
+	var current_state: String = _encounter_composition
+	var active_enemy_count: int = _active_enemy_count()
+	var build_multiplier: float = _current_build_role_multiplier(primary_scene)
+
 	if primary_scene == _swarm_enemy_scene:
-		return _swarm_enemy_scene
+		if current_state == "spike" and _active_enemy_count() >= 4 and swarm_count < 2 and randf() < build_multiplier * 0.5:
+			return _swarm_enemy_scene
 
-	if _ranged_enemy_scene == null:
-		return primary_scene
+		return _enemy_scene
 
-	if primary_scene == _enemy_scene and _swarm_enemy_scene != null and randf() < 0.35:
-		return _swarm_enemy_scene
+	if primary_scene == _ranged_enemy_scene:
+		if current_state == "spike" and _swarm_enemy_scene != null and _active_enemy_count() >= 5 and swarm_count < 2 and randf() < 0.35 * build_multiplier:
+			return _swarm_enemy_scene
 
-	if primary_scene == _ranged_enemy_scene and _swarm_enemy_scene != null and randf() < 0.45:
-		return _swarm_enemy_scene
+		return _enemy_scene
 
-	if primary_scene == _enemy_scene:
-		return _ranged_enemy_scene
+	if current_state == "recovery":
+		return _enemy_scene
+
+	if current_state == "build":
+		if _ranged_enemy_scene != null and ranged_count < melee_count and randf() < 0.55 * _current_build_role_multiplier(_ranged_enemy_scene):
+			return _ranged_enemy_scene
+
+		return _enemy_scene
+
+	if current_state == "pressure":
+		if _ranged_enemy_scene != null and ranged_count < melee_count and randf() < 0.60 * _current_build_role_multiplier(_ranged_enemy_scene):
+			return _ranged_enemy_scene
+
+		if _swarm_enemy_scene != null and active_enemy_count >= 4 and swarm_count < max(1, int(floor(float(active_enemy_count) * 0.25))) and randf() < 0.16 * _current_build_role_multiplier(_swarm_enemy_scene):
+			return _swarm_enemy_scene
+
+		return _enemy_scene
+
+	if current_state == "spike":
+		if _swarm_enemy_scene != null and active_enemy_count >= 4 and swarm_count < max(1, int(floor(float(active_enemy_count) * 0.25))) and randf() < 0.38 * _current_build_role_multiplier(_swarm_enemy_scene):
+			return _swarm_enemy_scene
+
+		if _ranged_enemy_scene != null and ranged_count <= melee_count and randf() < 0.30 * _current_build_role_multiplier(_ranged_enemy_scene):
+			return _ranged_enemy_scene
+
+		return _enemy_scene
 
 	return _enemy_scene
 
@@ -279,14 +551,64 @@ func _select_enemy_scene() -> PackedScene:
 	if _ranged_enemy_scene == null and _swarm_enemy_scene == null:
 		return _enemy_scene
 
+	var current_state: String = _encounter_composition
+	var melee_count: int = _role_enemy_count(MELEE_ENEMY_GROUP_NAME)
+	var ranged_count: int = _role_enemy_count(RANGED_ENEMY_GROUP_NAME)
+	var swarm_count: int = _role_enemy_count(SWARM_ENEMY_GROUP_NAME)
+	var active_enemy_count: int = _active_enemy_count()
 	var roll: float = randf()
-	if roll < MELEE_ENEMY_WEIGHT:
+	var melee_weight: float = MELEE_ENEMY_WEIGHT * _current_build_role_multiplier(_enemy_scene)
+	var ranged_weight: float = 0.0
+	var swarm_weight: float = 0.0
+	if _ranged_enemy_scene != null:
+		ranged_weight = RANGED_ENEMY_WEIGHT * _current_build_role_multiplier(_ranged_enemy_scene)
+	if _swarm_enemy_scene != null:
+		swarm_weight = SWARM_ENEMY_WEIGHT * _current_build_role_multiplier(_swarm_enemy_scene)
+	var total_weight: float = melee_weight + ranged_weight + swarm_weight
+
+	if current_state == "recovery":
 		return _enemy_scene
 
-	if _ranged_enemy_scene != null and roll < MELEE_ENEMY_WEIGHT + RANGED_ENEMY_WEIGHT:
+	if current_state == "build":
+		if active_enemy_count <= 2:
+			return _enemy_scene
+
+		if melee_count <= ranged_count + swarm_count:
+			return _enemy_scene
+
+		if _ranged_enemy_scene != null and ranged_count == 0 and roll < 0.25 * _current_build_role_multiplier(_ranged_enemy_scene):
+			return _ranged_enemy_scene
+
+		return _enemy_scene
+
+	if current_state == "pressure":
+		if melee_count <= 1:
+			return _enemy_scene
+
+		if _ranged_enemy_scene != null and ranged_count < max(1, int(floor(float(melee_count) * 0.5))) and roll < 0.55 * _current_build_role_multiplier(_ranged_enemy_scene):
+			return _ranged_enemy_scene
+
+		if _swarm_enemy_scene != null and active_enemy_count >= 4 and swarm_count < max(1, int(floor(float(active_enemy_count) * 0.25))) and roll < 0.16 * _current_build_role_multiplier(_swarm_enemy_scene):
+			return _swarm_enemy_scene
+
+		return _enemy_scene
+
+	if current_state == "spike":
+		if _swarm_enemy_scene != null and active_enemy_count >= 4 and swarm_count < max(1, int(floor(float(active_enemy_count) * 0.25))) and roll < 0.38 * _current_build_role_multiplier(_swarm_enemy_scene):
+			return _swarm_enemy_scene
+
+		if _ranged_enemy_scene != null and ranged_count <= melee_count and roll < 0.78 * _current_build_role_multiplier(_ranged_enemy_scene):
+			return _ranged_enemy_scene
+
+		return _enemy_scene
+
+	if roll < melee_weight:
+		return _enemy_scene
+
+	if _ranged_enemy_scene != null and roll < melee_weight + ranged_weight:
 		return _ranged_enemy_scene
 
-	if _swarm_enemy_scene != null and roll < MELEE_ENEMY_WEIGHT + RANGED_ENEMY_WEIGHT + SWARM_ENEMY_WEIGHT:
+	if _swarm_enemy_scene != null and roll < total_weight:
 		return _swarm_enemy_scene
 
 	return _enemy_scene
@@ -329,7 +651,68 @@ func _current_elite_chance() -> float:
 	var time_bonus: float = _elapsed_time * ELITE_TIME_WEIGHT
 	var pressure_bonus: float = _pressure * ELITE_PRESSURE_WEIGHT
 	var level_bonus: float = float(max(_player_level - 1, 0)) * ELITE_LEVEL_WEIGHT
-	return clamp(ELITE_BASE_CHANCE + time_bonus + pressure_bonus + level_bonus, 0.0, ELITE_MAX_CHANCE)
+	var stage_multiplier: float = _current_run_stage_elite_multiplier()
+	return clamp((ELITE_BASE_CHANCE + time_bonus + pressure_bonus + level_bonus) * stage_multiplier, 0.0, ELITE_MAX_CHANCE)
+
+func _current_run_stage_elite_multiplier() -> float:
+	match _run_stage:
+		"early":
+			return RUN_STAGE_EARLY_ELITE_MULTIPLIER
+		"mid":
+			return RUN_STAGE_MID_ELITE_MULTIPLIER
+		"late":
+			return RUN_STAGE_LATE_ELITE_MULTIPLIER
+		"endless":
+			return RUN_STAGE_ENDLESS_ELITE_MULTIPLIER
+		_:
+			return 1.0
+
+func _current_encounter_composition(active_enemy_count: int) -> String:
+	if _pacing_state == "recovery" or _recovery_pressure_buffer >= 1.0:
+		return "recovery"
+
+	var build_threshold: float = _current_run_stage_build_threshold()
+	var pressure_threshold: float = _current_run_stage_pressure_threshold()
+
+	if _pressure < build_threshold:
+		if active_enemy_count <= 2 and _recent_combat_intensity < 0.8:
+			return "recovery"
+
+		return "build"
+
+	if _pressure < pressure_threshold:
+		if _recent_combat_intensity < 1.1 and active_enemy_count <= max(2, int(floor(float(_current_max_enemies()) * 0.5))):
+			return "build"
+
+		return "pressure"
+
+	return "spike"
+
+func _current_run_stage_build_threshold() -> float:
+	match _run_stage:
+		"early":
+			return RUN_STAGE_EARLY_BUILD_THRESHOLD
+		"mid":
+			return RUN_STAGE_MID_BUILD_THRESHOLD
+		"late":
+			return RUN_STAGE_LATE_BUILD_THRESHOLD
+		"endless":
+			return RUN_STAGE_ENDLESS_BUILD_THRESHOLD
+		_:
+			return RUN_STAGE_EARLY_BUILD_THRESHOLD
+
+func _current_run_stage_pressure_threshold() -> float:
+	match _run_stage:
+		"early":
+			return RUN_STAGE_EARLY_PRESSURE_THRESHOLD
+		"mid":
+			return RUN_STAGE_MID_PRESSURE_THRESHOLD
+		"late":
+			return RUN_STAGE_LATE_PRESSURE_THRESHOLD
+		"endless":
+			return RUN_STAGE_ENDLESS_PRESSURE_THRESHOLD
+		_:
+			return RUN_STAGE_EARLY_PRESSURE_THRESHOLD
 
 func _current_elite_cap() -> int:
 	return clampi(1 + int(floor(_elapsed_time / 300.0)), 1, 3)
@@ -368,19 +751,45 @@ func _select_swarm_elite_type() -> StringName:
 	return ELITE_VOLTAIC
 
 func _current_spawn_group_size(enemy_scene: PackedScene) -> int:
-	if enemy_scene == _swarm_enemy_scene:
-		if _pacing_state == "high" and _pressure >= HIGH_PRESSURE_BURST_THRESHOLD and _burst_timer <= 0.0:
-			if randf() < 0.45:
-				_burst_timer = burst_cooldown_seconds * 0.75
-				return 2
+	var current_state: String = _encounter_composition
+	var active_enemy_count: int = _active_enemy_count()
+	var stage_burst_chance: float = _current_run_stage_spawn_burst_chance() * _current_build_spawn_burst_multiplier()
 
-		if randf() < 0.35:
+	if current_state == "recovery":
+		return 1
+
+	if current_state == "build":
+		if active_enemy_count <= 2 and randf() < stage_burst_chance * 0.6:
+			return 2
+
+		return 1
+
+	if current_state == "pressure":
+		if enemy_scene == _swarm_enemy_scene and _burst_timer <= 0.0 and active_enemy_count >= 4 and randf() < stage_burst_chance:
+			_burst_timer = burst_cooldown_seconds * 0.75
+			return 2
+
+		if enemy_scene == _ranged_enemy_scene and randf() < (stage_burst_chance + 0.10):
+			return 2
+
+		if randf() < stage_burst_chance:
+			return 2
+
+		return 1
+
+	if current_state == "spike":
+		if enemy_scene == _swarm_enemy_scene and _burst_timer <= 0.0 and active_enemy_count >= 4 and randf() < min(stage_burst_chance + 0.12, 0.55):
+			_burst_timer = burst_cooldown_seconds * 0.75
+			return 2
+
+		if _burst_timer <= 0.0 and randf() < max(stage_burst_chance, HIGH_PRESSURE_BURST_CHANCE):
+			_burst_timer = burst_cooldown_seconds
 			return 2
 
 		return 1
 
 	if _pacing_state == "high" and _pressure >= HIGH_PRESSURE_BURST_THRESHOLD and _burst_timer <= 0.0:
-		if randf() < HIGH_PRESSURE_BURST_CHANCE:
+		if randf() < max(stage_burst_chance, HIGH_PRESSURE_BURST_CHANCE):
 			_burst_timer = burst_cooldown_seconds
 			return 2
 
@@ -389,13 +798,38 @@ func _current_spawn_group_size(enemy_scene: PackedScene) -> int:
 
 	return 1
 
+func _current_run_stage_spawn_burst_chance() -> float:
+	match _run_stage:
+		"early":
+			return RUN_STAGE_EARLY_SPAWN_BURST_CHANCE
+		"mid":
+			return RUN_STAGE_MID_SPAWN_BURST_CHANCE
+		"late":
+			return RUN_STAGE_LATE_SPAWN_BURST_CHANCE
+		"endless":
+			return RUN_STAGE_ENDLESS_SPAWN_BURST_CHANCE
+		_:
+			return RUN_STAGE_EARLY_SPAWN_BURST_CHANCE
+
 func _pick_spawn_marker(enemy_scene: PackedScene) -> Marker2D:
 	var preferred_roots: Array[Node2D] = _preferred_spawn_roots(enemy_scene)
+	var fallback_roots: Array[Node2D] = []
 
 	for spawn_root: Node2D in preferred_roots:
+		if spawn_root == _last_spawn_zone_root and preferred_roots.size() > 1:
+			fallback_roots.append(spawn_root)
+			continue
+
 		var zone_marker: Marker2D = _pick_spawn_marker_from_root(spawn_root)
 		if zone_marker != null:
+			_last_spawn_zone_root = spawn_root
 			return zone_marker
+
+	for spawn_root: Node2D in fallback_roots:
+		var fallback_marker: Marker2D = _pick_spawn_marker_from_root(spawn_root)
+		if fallback_marker != null:
+			_last_spawn_zone_root = spawn_root
+			return fallback_marker
 
 	return _pick_spawn_marker_from_root(_enemy_spawn_root)
 
@@ -505,14 +939,21 @@ func _setup_debug_ui() -> void:
 func _update_debug(delta: float) -> void:
 	_debug_timer -= delta
 	if _debug_label != null:
-		_debug_label.text = "PRES: %.2f\nENEMIES: %d/%d\nELITES: %d/%d\nCD: %.2f\nSTATE: %s" % [
+		_debug_label.text = "PRES: %.2f\nENEMIES: %d/%d\nMELEE/RNG/SWM: %d/%d/%d\nELITES: %d/%d\nCD: %.2f\nSTATE: %s\nCOMP: %s\nRUN: %s\nBUILD: %s\nRELIEF: %.2f" % [
 			_pressure,
 			_active_enemy_count(),
 			_current_max_enemies(),
+			_role_enemy_count(MELEE_ENEMY_GROUP_NAME),
+			_role_enemy_count(RANGED_ENEMY_GROUP_NAME),
+			_role_enemy_count(SWARM_ENEMY_GROUP_NAME),
 			_active_elite_count(),
 			_current_elite_cap(),
 			max(_spawn_timer, 0.0),
-			_pacing_state
+			_pacing_state,
+			_encounter_composition,
+			_run_stage,
+			_current_player_build_identity(),
+			_tempo_relief_timer
 		]
 
 	if _debug_timer > 0.0:
@@ -520,11 +961,12 @@ func _update_debug(delta: float) -> void:
 
 	_debug_timer = DEBUG_PRINT_INTERVAL
 	print(
-		"Director pressure=%.2f enemies=%d/%d interval=%.2f state=%s" % [
+		"Director pressure=%.2f enemies=%d/%d interval=%.2f state=%s comp=%s" % [
 			_pressure,
 			_active_enemy_count(),
 			_current_max_enemies(),
 			_current_spawn_interval(),
-			_pacing_state
+			_pacing_state,
+			_encounter_composition
 		]
 	)

@@ -13,7 +13,7 @@ const XP_ORB_SCENE_PATH: String = "res://scenes/pickups/xp_orb.tscn"
 const ELITE_BERSERKER: StringName = &"berserker"
 const ELITE_TITAN: StringName = &"titan"
 const ELITE_VOLTAIC: StringName = &"voltaic"
-const PROJECTILE_OFFSET: Vector2 = Vector2(18.0, -16.0)
+const PROJECTILE_OFFSET: Vector2 = Vector2(22.0, -15.0)
 const IDLE_COLOR: Color = Color(0.28, 0.22, 0.50, 1.0)
 const CHASE_COLOR: Color = Color(0.40, 0.34, 0.75, 1.0)
 const STRAFE_COLOR: Color = Color(0.52, 0.50, 0.90, 1.0)
@@ -26,11 +26,11 @@ const VOLTAIC_ATTACK_COLOR: Color = Color(0.94, 0.99, 1.0, 1.0)
 const HIT_FLASH_COLOR: Color = Color(1.0, 1.0, 1.0, 1.0)
 const IDLE_TURN_MIN: float = 0.90
 const IDLE_TURN_MAX: float = 2.10
-const ATTACK_WINDUP_SECONDS: float = 0.18
-const ATTACK_RECOVERY_SECONDS: float = 0.24
+const ATTACK_WINDUP_SECONDS: float = 0.22
+const ATTACK_RECOVERY_SECONDS: float = 0.28
 const STRAFE_TURN_SECONDS: float = 0.85
-const ATTACK_AIM_SCALE: Vector2 = Vector2(1.10, 0.96)
-const ATTACK_FLASH_SCALE: Vector2 = Vector2(1.16, 0.90)
+const ATTACK_AIM_SCALE: Vector2 = Vector2(1.14, 0.95)
+const ATTACK_FLASH_SCALE: Vector2 = Vector2(1.18, 0.90)
 
 # ============================================================================
 # EXPORTED VARIABLES
@@ -40,9 +40,9 @@ const ATTACK_FLASH_SCALE: Vector2 = Vector2(1.16, 0.90)
 @export var gravity: float = 1100.0
 @export var jump_velocity: float = -290.0
 @export var detection_radius: float = 340.0
-@export var preferred_range: float = 180.0
-@export var preferred_range_tolerance: float = 46.0
-@export var retreat_range: float = 130.0
+@export var preferred_range: float = 200.0
+@export var preferred_range_tolerance: float = 60.0
+@export var retreat_range: float = 150.0
 @export var move_speed: float = 70.0
 @export var chase_speed: float = 108.0
 @export var strafe_speed: float = 44.0
@@ -86,6 +86,12 @@ var _is_dying: bool = false
 var _is_elite: bool = false
 var _elite_type: StringName = &""
 var _elite_modifiers_applied: bool = false
+var _counterplay_preferred_range_bonus: float = 0.0
+var _counterplay_chase_speed_multiplier: float = 1.0
+var _counterplay_strafe_speed_multiplier: float = 1.0
+var _counterplay_retreat_speed_multiplier: float = 1.0
+var _counterplay_projectile_speed_multiplier: float = 1.0
+var _counterplay_attack_cooldown_multiplier: float = 1.0
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _player: Node2D = null
 
@@ -95,6 +101,7 @@ var _player: Node2D = null
 
 func _ready() -> void:
 	add_to_group("enemy")
+	add_to_group("ranged_enemy")
 	_apply_elite_modifiers()
 	_health = max_health
 	if _is_elite:
@@ -149,7 +156,7 @@ func _update_ai_state() -> void:
 		_attack_primed = false
 		return
 
-	var inside_preferred_band: bool = abs(distance_to_player - preferred_range) <= preferred_range_tolerance
+	var inside_preferred_band: bool = abs(distance_to_player - _effective_preferred_range()) <= preferred_range_tolerance
 	if inside_preferred_band:
 		if _attack_cooldown_timer <= 0.0:
 			_state = STATE_ATTACK
@@ -232,11 +239,11 @@ func _apply_movement(delta: float) -> void:
 	if _state == STATE_IDLE:
 		target_speed = direction * move_speed
 	elif _state == STATE_CHASE:
-		target_speed = direction * chase_speed
+		target_speed = direction * chase_speed * _counterplay_chase_speed_multiplier
 	elif _state == STATE_STRAFE:
-		target_speed = direction * strafe_speed
+		target_speed = direction * strafe_speed * _counterplay_strafe_speed_multiplier
 	elif _state == STATE_RETREAT:
-		target_speed = direction * retreat_speed
+		target_speed = direction * retreat_speed * _counterplay_retreat_speed_multiplier
 
 	velocity.x = move_toward(velocity.x, target_speed, 14.0)
 
@@ -295,7 +302,7 @@ func _resolve_ranged_attack() -> void:
 		return
 
 	_fire_projectile()
-	_attack_cooldown_timer = attack_cooldown + ATTACK_RECOVERY_SECONDS
+	_attack_cooldown_timer = attack_cooldown * _counterplay_attack_cooldown_multiplier + ATTACK_RECOVERY_SECONDS
 	_attack_primed = false
 	_state = STATE_STRAFE
 
@@ -311,9 +318,12 @@ func _fire_projectile() -> void:
 		spawn_root = spawn_root.get_node("Gameplay")
 
 	projectile.setup_projectile(global_position + spawn_offset, _player.global_position)
-	projectile.speed = projectile_speed
+	projectile.speed = projectile_speed * _counterplay_projectile_speed_multiplier
 	projectile.damage = attack_damage
 	spawn_root.add_child(projectile)
+
+func _effective_preferred_range() -> float:
+	return preferred_range + _counterplay_preferred_range_bonus
 
 # ============================================================================
 # PROJECTILES
@@ -332,6 +342,9 @@ func take_projectile_hit(damage: int, knockback: Vector2) -> void:
 		return
 
 	_start_death_feedback()
+
+func get_current_health() -> int:
+	return _health
 
 func _start_death_feedback() -> void:
 	_is_dying = true
@@ -469,6 +482,44 @@ func _apply_elite_modifiers() -> void:
 		_:
 			_is_elite = false
 			_elite_type = &""
+
+# ============================================================================
+# COUNTERPLAY
+# ============================================================================
+
+func configure_counterplay(player_build_identity: StringName) -> void:
+	_counterplay_preferred_range_bonus = 0.0
+	_counterplay_chase_speed_multiplier = 1.0
+	_counterplay_strafe_speed_multiplier = 1.0
+	_counterplay_retreat_speed_multiplier = 1.0
+	_counterplay_projectile_speed_multiplier = 1.0
+	_counterplay_attack_cooldown_multiplier = 1.0
+
+	match player_build_identity:
+		&"mobility":
+			_counterplay_preferred_range_bonus = 16.0
+			_counterplay_chase_speed_multiplier = 1.03
+			_counterplay_strafe_speed_multiplier = 1.05
+			_counterplay_retreat_speed_multiplier = 1.04
+			_counterplay_projectile_speed_multiplier = 1.05
+		&"aggression":
+			_counterplay_preferred_range_bonus = 8.0
+			_counterplay_chase_speed_multiplier = 1.04
+			_counterplay_strafe_speed_multiplier = 1.02
+			_counterplay_projectile_speed_multiplier = 1.04
+			_counterplay_attack_cooldown_multiplier = 0.96
+		&"ranged":
+			_counterplay_preferred_range_bonus = 12.0
+			_counterplay_chase_speed_multiplier = 1.02
+			_counterplay_strafe_speed_multiplier = 1.06
+			_counterplay_retreat_speed_multiplier = 1.05
+			_counterplay_projectile_speed_multiplier = 1.08
+		&"momentum":
+			_counterplay_preferred_range_bonus = 6.0
+			_counterplay_chase_speed_multiplier = 1.03
+			_counterplay_strafe_speed_multiplier = 1.03
+			_counterplay_projectile_speed_multiplier = 1.03
+			_counterplay_attack_cooldown_multiplier = 0.97
 
 # ============================================================================
 # SCALING
