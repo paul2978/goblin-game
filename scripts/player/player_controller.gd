@@ -35,6 +35,8 @@ const DEATH_RESTART_DELAY_SECONDS: float = 0.65
 const INVULNERABILITY_BLINK_INTERVAL: float = 0.08
 const LEVEL_UP_FLASH_SECONDS: float = 0.22
 const LEVEL_UP_PULSE_SECONDS: float = 0.24
+const STAGE_REWARD_FLASH_SECONDS: float = 0.20
+const STAGE_REWARD_PULSE_SECONDS: float = 0.22
 const CONTACT_KNOCKBACK_X: float = 180.0
 const CONTACT_KNOCKBACK_Y: float = -180.0
 const DEBUG_LABEL_OFFSET: Vector2 = Vector2(12.0, 12.0)
@@ -44,6 +46,7 @@ const DAMAGE_FLASH_TINT: Color = Color(1.0, 0.88, 0.88, 1.0)
 const INVULNERABLE_TINT: Color = Color(1.0, 0.55, 0.55, 1.0)
 const DEATH_FLASH_TINT: Color = Color(1.0, 1.0, 1.0, 1.0)
 const LEVEL_UP_TINT: Color = Color(1.0, 0.94, 0.45, 1.0)
+const STAGE_REWARD_TINT: Color = Color(0.78, 0.97, 0.82, 1.0)
 const BASE_PROJECTILE_DAMAGE: int = 1
 
 # ============================================================================
@@ -64,10 +67,9 @@ const BASE_PROJECTILE_DAMAGE: int = 1
 @export var projectile_pierce_upgrade_amount: int = 1
 @export var jump_power_upgrade_amount: float = 28.0
 @export var crit_burst_upgrade_amount: float = 0.08
-@export var split_shot_upgrade_amount: float = 0.18
+@export var split_shot_upgrade_amount: float = 0.14
 @export var kill_momentum_upgrade_duration: float = 1.60
 @export var kill_momentum_move_speed_bonus: float = 32.0
-@export var kill_momentum_attack_speed_multiplier: float = 0.90
 @export var specialization_threshold: int = 3
 @export var mobility_specialization_move_bonus: float = 14.0
 @export var mobility_specialization_jump_bonus: float = 16.0
@@ -77,7 +79,6 @@ const BASE_PROJECTILE_DAMAGE: int = 1
 @export var ranged_specialization_pierce_bonus: int = 1
 @export var momentum_specialization_duration_bonus: float = 0.24
 @export var momentum_specialization_move_bonus: float = 8.0
-@export var momentum_specialization_attack_speed_multiplier: float = 0.96
 
 const INPUT_ACTIONS: Dictionary = {
 	&"move_left": [KEY_A],
@@ -115,6 +116,8 @@ var _current_xp: int = 0
 var _xp_to_next_level: int = BASE_XP_TO_NEXT_LEVEL
 var _level_up_flash_timer: float = 0.0
 var _level_up_pulse_timer: float = 0.0
+var _stage_reward_flash_timer: float = 0.0
+var _stage_reward_pulse_timer: float = 0.0
 var _pending_level_up_choices: int = 0
 var _projectile_damage_bonus: int = 0
 var _attack_speed_multiplier: float = 1.0
@@ -295,6 +298,8 @@ func _update_damage_timers(delta: float) -> void:
 	_invulnerability_timer = max(_invulnerability_timer - delta, 0.0)
 	_level_up_flash_timer = max(_level_up_flash_timer - delta, 0.0)
 	_level_up_pulse_timer = max(_level_up_pulse_timer - delta, 0.0)
+	_stage_reward_flash_timer = max(_stage_reward_flash_timer - delta, 0.0)
+	_stage_reward_pulse_timer = max(_stage_reward_pulse_timer - delta, 0.0)
 
 	if _invulnerability_timer <= 0.0:
 		_invulnerability_blink_timer = 0.0
@@ -328,6 +333,28 @@ func get_current_level() -> int:
 
 func get_build_identity() -> StringName:
 	return _build_identity
+
+func apply_stage_transition_reward(stage_name: String) -> void:
+	if _is_dead:
+		return
+
+	var reward_heal_amount: int = _stage_transition_reward_heal_amount(stage_name)
+	if reward_heal_amount > 0:
+		_health = min(_health + reward_heal_amount, max_health)
+
+	_stage_reward_flash_timer = max(_stage_reward_flash_timer, STAGE_REWARD_FLASH_SECONDS)
+	_stage_reward_pulse_timer = max(_stage_reward_pulse_timer, STAGE_REWARD_PULSE_SECONDS)
+
+func _stage_transition_reward_heal_amount(stage_name: String) -> int:
+	match stage_name:
+		"mid":
+			return 10
+		"late":
+			return 14
+		"endless":
+			return 18
+		_:
+			return 8
 
 func _add_experience(amount: int) -> void:
 	if amount <= 0:
@@ -470,8 +497,6 @@ func _apply_upgrade(upgrade_id: StringName) -> void:
 
 func _current_fire_cooldown_duration() -> float:
 	var cooldown: float = FIRE_COOLDOWN_SECONDS * _attack_speed_multiplier
-	if _kill_momentum_timer > 0.0:
-		cooldown *= kill_momentum_attack_speed_multiplier
 
 	return cooldown
 
@@ -482,7 +507,7 @@ func _current_projectile_pierce() -> int:
 	return _projectile_pierce_bonus
 
 func _current_critical_chance() -> float:
-	return clamp(_critical_chance_bonus, 0.0, 0.45)
+	return clamp(_critical_chance_bonus, 0.0, 0.35)
 
 func _update_proc_timers(delta: float) -> void:
 	_kill_momentum_timer = max(_kill_momentum_timer - delta, 0.0)
@@ -549,7 +574,6 @@ func _record_build_specialization(upgrade_id: StringName) -> void:
 
 	if upgrade_id == ATTACK_SPEED_UPGRADE_ID:
 		_aggression_upgrade_score += 1
-		_momentum_upgrade_score += 1
 		return
 
 	if upgrade_id == MOVE_SPEED_UPGRADE_ID:
@@ -570,12 +594,10 @@ func _record_build_specialization(upgrade_id: StringName) -> void:
 
 	if upgrade_id == CRIT_BURST_UPGRADE_ID:
 		_aggression_upgrade_score += 1
-		_ranged_upgrade_score += 1
 		return
 
 	if upgrade_id == SPLIT_SHOT_UPGRADE_ID:
 		_ranged_upgrade_score += 1
-		_momentum_upgrade_score += 1
 		return
 
 	if upgrade_id == KILL_MOMENTUM_UPGRADE_ID:
@@ -631,10 +653,8 @@ func _apply_specialization_bonus() -> void:
 	if not _momentum_specialization_applied and _momentum_upgrade_score >= specialization_threshold:
 		_momentum_specialization_applied = true
 		_move_speed_bonus += momentum_specialization_move_bonus
-		_attack_speed_multiplier *= momentum_specialization_attack_speed_multiplier
 		kill_momentum_upgrade_duration += momentum_specialization_duration_bonus
 		kill_momentum_move_speed_bonus += momentum_specialization_move_bonus
-		kill_momentum_attack_speed_multiplier *= momentum_specialization_attack_speed_multiplier
 
 func _available_upgrade_options() -> Array:
 	return [
@@ -648,7 +668,7 @@ func _available_upgrade_options() -> Array:
 			"id": ATTACK_SPEED_UPGRADE_ID,
 			"title": "Attack Speed Up",
 			"description": "Fire more often.",
-			"tags": [BUILD_ID_AGGRESSION, BUILD_ID_MOMENTUM]
+			"tags": [BUILD_ID_AGGRESSION]
 		},
 		{
 			"id": MOVE_SPEED_UPGRADE_ID,
@@ -678,13 +698,13 @@ func _available_upgrade_options() -> Array:
 			"id": CRIT_BURST_UPGRADE_ID,
 			"title": "Crit Burst",
 			"description": "Shots sometimes strike harder.",
-			"tags": [BUILD_ID_AGGRESSION, BUILD_ID_RANGED]
+			"tags": [BUILD_ID_AGGRESSION]
 		},
 		{
 			"id": SPLIT_SHOT_UPGRADE_ID,
 			"title": "Split Shot",
 			"description": "Shots occasionally split.",
-			"tags": [BUILD_ID_RANGED, BUILD_ID_MOMENTUM]
+			"tags": [BUILD_ID_RANGED]
 		},
 		{
 			"id": KILL_MOMENTUM_UPGRADE_ID,
@@ -762,6 +782,9 @@ func _update_player_visuals() -> void:
 	if _level_up_pulse_timer > 0.0:
 		var pulse_strength: float = _level_up_pulse_timer / LEVEL_UP_PULSE_SECONDS
 		sprite_scale += Vector2.ONE * pulse_strength * 0.12
+	if _stage_reward_pulse_timer > 0.0:
+		var stage_reward_pulse_strength: float = _stage_reward_pulse_timer / STAGE_REWARD_PULSE_SECONDS
+		sprite_scale += Vector2.ONE * stage_reward_pulse_strength * 0.08
 	if _kill_momentum_flash_timer > 0.0:
 		sprite_scale += Vector2.ONE * 0.08
 
@@ -780,6 +803,10 @@ func _update_player_visuals() -> void:
 
 	if _level_up_flash_timer > 0.0:
 		_sprite.self_modulate = LEVEL_UP_TINT
+		return
+
+	if _stage_reward_flash_timer > 0.0:
+		_sprite.self_modulate = STAGE_REWARD_TINT
 		return
 
 	if _kill_momentum_flash_timer > 0.0:

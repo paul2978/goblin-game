@@ -69,6 +69,10 @@ position = Vector2(736, 608)
 [node name="Arena_Right" type="Marker2D" parent="Gameplay/FutureHooks/CombatArenas"]
 position = Vector2(2336, 608)
 
+[node name="TraversalRoutes" type="Node2D" parent="Gameplay/FutureHooks"]
+
+[node name="ArenaPressure" type="Node2D" parent="Gameplay/FutureHooks"]
+
 [node name="SpawnZones" type="Node2D" parent="Gameplay/FutureHooks"]
 
 [node name="Melee" type="Node2D" parent="Gameplay/FutureHooks/SpawnZones"]

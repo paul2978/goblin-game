@@ -53,6 +53,10 @@ const RUN_STAGE_EARLY_ELITE_MULTIPLIER: float = 1.00
 const RUN_STAGE_MID_ELITE_MULTIPLIER: float = 1.08
 const RUN_STAGE_LATE_ELITE_MULTIPLIER: float = 1.18
 const RUN_STAGE_ENDLESS_ELITE_MULTIPLIER: float = 1.28
+const RUN_STAGE_TRANSITION_SECONDS: float = 3.0
+const RUN_STAGE_TRANSITION_INTERVAL_MULTIPLIER: float = 1.20
+const RUN_STAGE_TRANSITION_MAX_ENEMY_PENALTY: int = 2
+const RUN_STAGE_TRANSITION_PRESSURE_RELIEF: float = 0.70
 const RUN_STAGE_EARLY_SPAWN_BURST_CHANCE: float = 0.18
 const RUN_STAGE_MID_SPAWN_BURST_CHANCE: float = 0.24
 const RUN_STAGE_LATE_SPAWN_BURST_CHANCE: float = 0.32
@@ -65,10 +69,23 @@ const RUN_STAGE_EARLY_PRESSURE_THRESHOLD: float = 4.6
 const RUN_STAGE_MID_PRESSURE_THRESHOLD: float = 4.3
 const RUN_STAGE_LATE_PRESSURE_THRESHOLD: float = 4.0
 const RUN_STAGE_ENDLESS_PRESSURE_THRESHOLD: float = 3.7
-const RECOVERY_WINDOW_SECONDS: float = 2.2
-const RECOVERY_WINDOW_INTERVAL_MULTIPLIER: float = 1.18
+const RECOVERY_WINDOW_SECONDS: float = 2.0
+const RECOVERY_WINDOW_INTERVAL_MULTIPLIER: float = 1.14
 const RECOVERY_WINDOW_MAX_ENEMY_PENALTY: int = 1
-const RECOVERY_WINDOW_PRESSURE_RELIEF: float = 0.60
+const RECOVERY_WINDOW_PRESSURE_RELIEF: float = 0.50
+const LANDMARK_EVENT_BASE_COOLDOWN: float = 54.0
+const LANDMARK_EVENT_ELAPSED_SECONDS_STEP: float = 90.0
+const LANDMARK_EVENT_TRIGGER_PRESSURE: float = 3.8
+const LANDMARK_EVENT_DURATION_SECONDS: float = 6.5
+const LANDMARK_EVENT_RELIEF_SECONDS: float = 3.0
+const LANDMARK_EVENT_REWARD_RELIEF: float = 0.65
+const LANDMARK_EVENT_SWARM_INTERVAL_MULTIPLIER: float = 0.84
+const LANDMARK_EVENT_ELITE_INTERVAL_MULTIPLIER: float = 0.90
+const LANDMARK_EVENT_MELEE_INTERVAL_MULTIPLIER: float = 0.92
+const LANDMARK_EVENT_SWARM_BURST_MULTIPLIER: float = 1.40
+const LANDMARK_EVENT_ELITE_BURST_MULTIPLIER: float = 1.24
+const LANDMARK_EVENT_MELEE_BURST_MULTIPLIER: float = 1.12
+const LANDMARK_EVENT_MAX_ENEMY_BONUS: int = 1
 
 # ============================================================================
 # EXPORTED VARIABLES
@@ -105,7 +122,12 @@ var _player_build_identity: StringName = &"balanced"
 var _pacing_state: String = "recovery"
 var _encounter_composition: String = "recovery"
 var _run_stage: String = "early"
+var _stage_transition_timer: float = 0.0
+var _stage_transition_label: String = "none"
 var _tempo_relief_timer: float = 0.0
+var _landmark_event_timer: float = 0.0
+var _landmark_event_cooldown_timer: float = 0.0
+var _landmark_event_type: String = "none"
 var _last_spawn_zone_root: Node2D = null
 var _gameplay_root: Node2D = null
 var _enemy_spawn_root: Node2D = null
@@ -170,10 +192,13 @@ func _update_director(delta: float) -> void:
 	_elapsed_time += delta
 	var active_enemy_count: int = _active_enemy_count()
 	var enemy_deaths: int = max(_last_active_enemy_count - active_enemy_count, 0)
+	var previous_run_stage: String = _run_stage
 	_run_stage = _current_run_stage()
+	_update_stage_transition(delta, previous_run_stage, _run_stage, active_enemy_count)
 	_update_combat_pressure(delta, active_enemy_count, enemy_deaths)
 	_update_recovery_pressure(delta, active_enemy_count, enemy_deaths)
 	_update_tempo_relief(delta, active_enemy_count, enemy_deaths)
+	_update_landmark_events(delta, active_enemy_count, enemy_deaths)
 	_player_level = _current_player_level()
 	_pressure = _compute_pressure(active_enemy_count)
 	_pacing_state = _current_pacing_state(active_enemy_count)
@@ -217,6 +242,85 @@ func _update_tempo_relief(delta: float, active_enemy_count: int, enemy_deaths: i
 
 	_tempo_relief_timer = max(_tempo_relief_timer, RECOVERY_WINDOW_SECONDS)
 
+func _update_landmark_events(delta: float, active_enemy_count: int, enemy_deaths: int) -> void:
+	_landmark_event_timer = max(_landmark_event_timer - delta, 0.0)
+	_landmark_event_cooldown_timer = max(_landmark_event_cooldown_timer - delta, 0.0)
+
+	if _landmark_event_timer > 0.0:
+		return
+
+	if _landmark_event_cooldown_timer > 0.0:
+		return
+
+	if _pressure < LANDMARK_EVENT_TRIGGER_PRESSURE:
+		return
+
+	if active_enemy_count > max(2, int(floor(float(_current_max_enemies()) * 0.75))):
+		return
+
+	if enemy_deaths <= 0 and _recent_combat_intensity < 1.0:
+		return
+
+	var event_type: String = _select_landmark_event_type(active_enemy_count)
+	if event_type == "none":
+		return
+
+	_landmark_event_type = event_type
+	_landmark_event_timer = LANDMARK_EVENT_DURATION_SECONDS
+	_landmark_event_cooldown_timer = LANDMARK_EVENT_BASE_COOLDOWN + float(int(floor(_elapsed_time / LANDMARK_EVENT_ELAPSED_SECONDS_STEP))) * 3.0
+	_tempo_relief_timer = max(_tempo_relief_timer, LANDMARK_EVENT_RELIEF_SECONDS)
+	_recovery_pressure_buffer = min(_recovery_pressure_buffer + LANDMARK_EVENT_REWARD_RELIEF, RECOVERY_PENALTY_CAP)
+
+func _update_stage_transition(delta: float, previous_run_stage: String, current_run_stage: String, active_enemy_count: int) -> void:
+	_stage_transition_timer = max(_stage_transition_timer - delta, 0.0)
+	if _stage_transition_timer <= 0.0:
+		_stage_transition_label = "none"
+
+	if previous_run_stage == current_run_stage:
+		return
+
+	_stage_transition_timer = RUN_STAGE_TRANSITION_SECONDS
+	_stage_transition_label = "%s_to_%s" % [previous_run_stage, current_run_stage]
+
+	if is_instance_valid(_player) and _player.has_method("apply_stage_transition_reward"):
+		_player.call("apply_stage_transition_reward", current_run_stage)
+
+	if active_enemy_count <= 3:
+		_tempo_relief_timer = max(_tempo_relief_timer, RUN_STAGE_TRANSITION_SECONDS)
+		_recovery_pressure_buffer = min(_recovery_pressure_buffer + 0.35, RECOVERY_PENALTY_CAP)
+
+func _select_landmark_event_type(active_enemy_count: int) -> String:
+	var roll: float = randf()
+	var swarm_bias: float = 0.0
+	var elite_bias: float = 0.0
+	var melee_bias: float = 0.0
+
+	if _swarm_enemy_scene != null:
+		swarm_bias = 0.30
+	if _current_elite_cap() > 1:
+		elite_bias = 0.24
+	if active_enemy_count <= 4:
+		melee_bias = 0.20
+
+	if _run_stage == "late" or _run_stage == "endless":
+		swarm_bias += 0.10
+		elite_bias += 0.06
+
+	var total_bias: float = swarm_bias + elite_bias + melee_bias
+	if total_bias <= 0.0:
+		return "none"
+
+	if roll < swarm_bias:
+		return "swarm_surge"
+
+	if roll < swarm_bias + elite_bias:
+		return "elite_push"
+
+	if roll < total_bias:
+		return "melee_rush"
+
+	return "none"
+
 func _compute_pressure(active_enemy_count: int) -> float:
 	var elapsed_pressure: float = _elapsed_time * pressure_time_rate
 	var enemy_pressure: float = float(active_enemy_count) * pressure_enemy_weight
@@ -226,6 +330,10 @@ func _compute_pressure(active_enemy_count: int) -> float:
 	var tempo_relief: float = 0.0
 	if _tempo_relief_timer > 0.0:
 		tempo_relief = RECOVERY_WINDOW_PRESSURE_RELIEF
+	if _landmark_event_timer > 0.0:
+		tempo_relief += LANDMARK_EVENT_REWARD_RELIEF
+	if _stage_transition_timer > 0.0:
+		tempo_relief += RUN_STAGE_TRANSITION_PRESSURE_RELIEF
 
 	var total_pressure: float = elapsed_pressure + enemy_pressure + level_pressure + intensity_pressure - recovery_relief - tempo_relief
 	return max(total_pressure, 0.0)
@@ -250,30 +358,30 @@ func _current_build_role_multiplier(enemy_scene: PackedScene) -> float:
 
 	if build_identity == &"mobility":
 		if enemy_scene == _ranged_enemy_scene:
-			return 1.08
+			return 1.06
 		if enemy_scene == _swarm_enemy_scene:
-			return 1.10
-		return 0.96
+			return 1.08
+		return 0.98
 
 	if build_identity == &"aggression":
 		if enemy_scene == _enemy_scene:
-			return 1.08
+			return 1.05
 		if enemy_scene == _ranged_enemy_scene:
-			return 0.98
-		return 0.96
+			return 1.00
+		return 0.98
 
 	if build_identity == &"ranged":
 		if enemy_scene == _swarm_enemy_scene:
-			return 1.10
+			return 1.08
 		if enemy_scene == _ranged_enemy_scene:
-			return 0.96
-		return 1.04
+			return 0.98
+		return 1.02
 
 	if build_identity == &"momentum":
 		if enemy_scene == _swarm_enemy_scene:
-			return 1.08
+			return 1.06
 		if enemy_scene == _ranged_enemy_scene:
-			return 1.02
+			return 1.00
 		return 1.00
 
 	return 1.0
@@ -282,18 +390,44 @@ func _current_build_spawn_burst_multiplier() -> float:
 	var build_identity: StringName = _current_player_build_identity()
 
 	if build_identity == &"mobility":
-		return 1.05
-
-	if build_identity == &"aggression":
-		return 0.95
-
-	if build_identity == &"ranged":
-		return 1.08
-
-	if build_identity == &"momentum":
 		return 1.03
 
+	if build_identity == &"aggression":
+		return 0.98
+
+	if build_identity == &"ranged":
+		return 1.05
+
+	if build_identity == &"momentum":
+		return 1.01
+
 	return 1.0
+
+func _current_landmark_enemy_multiplier(enemy_scene: PackedScene) -> float:
+	if _landmark_event_timer <= 0.0 or enemy_scene == null:
+		return 1.0
+
+	match _landmark_event_type:
+		"swarm_surge":
+			if enemy_scene == _swarm_enemy_scene:
+				return LANDMARK_EVENT_SWARM_BURST_MULTIPLIER
+			if enemy_scene == _ranged_enemy_scene:
+				return 0.92
+			return 0.96
+		"elite_push":
+			if enemy_scene == _ranged_enemy_scene:
+				return LANDMARK_EVENT_ELITE_BURST_MULTIPLIER
+			if enemy_scene == _swarm_enemy_scene:
+				return 0.94
+			return 0.98
+		"melee_rush":
+			if enemy_scene == _enemy_scene:
+				return LANDMARK_EVENT_MELEE_BURST_MULTIPLIER
+			if enemy_scene == _ranged_enemy_scene:
+				return 0.90
+			return 0.96
+		_:
+			return 1.0
 
 func _active_enemy_count() -> int:
 	return get_tree().get_nodes_in_group("enemy").size()
@@ -307,11 +441,15 @@ func _current_spawn_interval() -> float:
 	var composition_factor: float = _encounter_spawn_factor()
 	var stage_factor: float = _current_run_stage_interval_multiplier()
 	var recovery_factor: float = _current_recovery_window_interval_multiplier()
+	var landmark_factor: float = _current_landmark_interval_multiplier()
+	var transition_factor: float = _current_stage_transition_interval_multiplier()
 	var interval: float = base_spawn_interval / pressure_factor
 	interval *= pacing_factor
 	interval *= composition_factor
 	interval *= stage_factor
 	interval *= recovery_factor
+	interval *= landmark_factor
+	interval *= transition_factor
 	return max(minimum_spawn_interval, interval)
 
 func _current_max_enemies() -> int:
@@ -322,11 +460,19 @@ func _current_max_enemies() -> int:
 	var recovery_penalty: int = 0
 	if _tempo_relief_timer > 0.0:
 		recovery_penalty = RECOVERY_WINDOW_MAX_ENEMY_PENALTY
+	var landmark_bonus: int = _current_landmark_max_enemy_bonus()
+	var transition_penalty: int = _current_stage_transition_max_enemy_penalty()
 
-	return clampi(base_max_enemies + time_bonus + level_bonus + pressure_bonus + stage_bonus - recovery_penalty, base_max_enemies, max_enemy_cap)
+	return clampi(base_max_enemies + time_bonus + level_bonus + pressure_bonus + stage_bonus + landmark_bonus - recovery_penalty - transition_penalty, base_max_enemies, max_enemy_cap)
 
 func _current_pacing_state(active_enemy_count: int) -> String:
 	var pressure_threshold: float = _current_run_stage_pressure_threshold()
+
+	if _landmark_event_timer > 0.0:
+		return "spike"
+
+	if _stage_transition_timer > 0.0:
+		return "transition"
 
 	if _tempo_relief_timer > 0.0 and active_enemy_count <= 2 and _pressure < pressure_threshold:
 		return "recovery"
@@ -344,6 +490,8 @@ func _current_pacing_state(active_enemy_count: int) -> String:
 
 func _spawn_pacing_factor() -> float:
 	match _pacing_state:
+		"transition":
+			return 1.18
 		"recovery":
 			return 1.25
 		"low":
@@ -356,7 +504,12 @@ func _spawn_pacing_factor() -> float:
 			return 1.0
 
 func _encounter_spawn_factor() -> float:
+	if _landmark_event_timer > 0.0:
+		return _current_landmark_spawn_multiplier()
+
 	match _encounter_composition:
+		"transition":
+			return 1.10
 		"recovery":
 			return COMPOSITION_RECOVERY_INTERVAL_MULTIPLIER
 		"build":
@@ -374,6 +527,57 @@ func _current_recovery_window_interval_multiplier() -> float:
 
 	return RECOVERY_WINDOW_INTERVAL_MULTIPLIER
 
+func _current_stage_transition_interval_multiplier() -> float:
+	if _stage_transition_timer <= 0.0:
+		return 1.0
+
+	return RUN_STAGE_TRANSITION_INTERVAL_MULTIPLIER
+
+func _current_stage_transition_max_enemy_penalty() -> int:
+	if _stage_transition_timer <= 0.0:
+		return 0
+
+	return RUN_STAGE_TRANSITION_MAX_ENEMY_PENALTY
+
+func _current_landmark_interval_multiplier() -> float:
+	if _landmark_event_timer <= 0.0:
+		return 1.0
+
+	match _landmark_event_type:
+		"swarm_surge":
+			return LANDMARK_EVENT_SWARM_INTERVAL_MULTIPLIER
+		"elite_push":
+			return LANDMARK_EVENT_ELITE_INTERVAL_MULTIPLIER
+		"melee_rush":
+			return LANDMARK_EVENT_MELEE_INTERVAL_MULTIPLIER
+		_:
+			return 1.0
+
+func _current_landmark_spawn_multiplier() -> float:
+	match _landmark_event_type:
+		"swarm_surge":
+			return 0.92
+		"elite_push":
+			return 0.98
+		"melee_rush":
+			return 0.95
+		_:
+			return 1.0
+
+func _current_landmark_max_enemy_bonus() -> int:
+	if _landmark_event_timer <= 0.0:
+		return 0
+
+	match _landmark_event_type:
+		"swarm_surge":
+			return LANDMARK_EVENT_MAX_ENEMY_BONUS
+		"elite_push":
+			return 0
+		"melee_rush":
+			return 0
+		_:
+			return 0
+
 func _current_run_stage() -> String:
 	if _elapsed_time < RUN_STAGE_EARLY_SECONDS:
 		return "early"
@@ -385,6 +589,21 @@ func _current_run_stage() -> String:
 		return "late"
 
 	return "endless"
+
+func get_run_stage() -> String:
+	return _run_stage
+
+func get_pacing_state() -> String:
+	return _pacing_state
+
+func get_encounter_composition() -> String:
+	return _encounter_composition
+
+func get_pressure() -> float:
+	return _pressure
+
+func get_landmark_event_type() -> String:
+	return _landmark_event_type
 
 func _current_run_stage_interval_multiplier() -> float:
 	match _run_stage:
@@ -505,15 +724,16 @@ func _select_followup_enemy_scene(primary_scene: PackedScene) -> PackedScene:
 	var current_state: String = _encounter_composition
 	var active_enemy_count: int = _active_enemy_count()
 	var build_multiplier: float = _current_build_role_multiplier(primary_scene)
+	var landmark_multiplier: float = _current_landmark_enemy_multiplier(primary_scene)
 
 	if primary_scene == _swarm_enemy_scene:
-		if current_state == "spike" and _active_enemy_count() >= 4 and swarm_count < 2 and randf() < build_multiplier * 0.5:
+		if current_state == "spike" and _active_enemy_count() >= 4 and swarm_count < 2 and randf() < build_multiplier * landmark_multiplier * 0.5:
 			return _swarm_enemy_scene
 
 		return _enemy_scene
 
 	if primary_scene == _ranged_enemy_scene:
-		if current_state == "spike" and _swarm_enemy_scene != null and _active_enemy_count() >= 5 and swarm_count < 2 and randf() < 0.35 * build_multiplier:
+		if current_state == "spike" and _swarm_enemy_scene != null and _active_enemy_count() >= 5 and swarm_count < 2 and randf() < 0.35 * build_multiplier * landmark_multiplier:
 			return _swarm_enemy_scene
 
 		return _enemy_scene
@@ -522,25 +742,25 @@ func _select_followup_enemy_scene(primary_scene: PackedScene) -> PackedScene:
 		return _enemy_scene
 
 	if current_state == "build":
-		if _ranged_enemy_scene != null and ranged_count < melee_count and randf() < 0.55 * _current_build_role_multiplier(_ranged_enemy_scene):
+		if _ranged_enemy_scene != null and ranged_count < melee_count and randf() < 0.55 * _current_build_role_multiplier(_ranged_enemy_scene) * landmark_multiplier:
 			return _ranged_enemy_scene
 
 		return _enemy_scene
 
 	if current_state == "pressure":
-		if _ranged_enemy_scene != null and ranged_count < melee_count and randf() < 0.60 * _current_build_role_multiplier(_ranged_enemy_scene):
+		if _ranged_enemy_scene != null and ranged_count < melee_count and randf() < 0.60 * _current_build_role_multiplier(_ranged_enemy_scene) * landmark_multiplier:
 			return _ranged_enemy_scene
 
-		if _swarm_enemy_scene != null and active_enemy_count >= 4 and swarm_count < max(1, int(floor(float(active_enemy_count) * 0.25))) and randf() < 0.16 * _current_build_role_multiplier(_swarm_enemy_scene):
+		if _swarm_enemy_scene != null and active_enemy_count >= 4 and swarm_count < max(1, int(floor(float(active_enemy_count) * 0.25))) and randf() < 0.16 * _current_build_role_multiplier(_swarm_enemy_scene) * landmark_multiplier:
 			return _swarm_enemy_scene
 
 		return _enemy_scene
 
 	if current_state == "spike":
-		if _swarm_enemy_scene != null and active_enemy_count >= 4 and swarm_count < max(1, int(floor(float(active_enemy_count) * 0.25))) and randf() < 0.38 * _current_build_role_multiplier(_swarm_enemy_scene):
+		if _swarm_enemy_scene != null and active_enemy_count >= 4 and swarm_count < max(1, int(floor(float(active_enemy_count) * 0.25))) and randf() < 0.38 * _current_build_role_multiplier(_swarm_enemy_scene) * landmark_multiplier:
 			return _swarm_enemy_scene
 
-		if _ranged_enemy_scene != null and ranged_count <= melee_count and randf() < 0.30 * _current_build_role_multiplier(_ranged_enemy_scene):
+		if _ranged_enemy_scene != null and ranged_count <= melee_count and randf() < 0.30 * _current_build_role_multiplier(_ranged_enemy_scene) * landmark_multiplier:
 			return _ranged_enemy_scene
 
 		return _enemy_scene
@@ -560,10 +780,12 @@ func _select_enemy_scene() -> PackedScene:
 	var melee_weight: float = MELEE_ENEMY_WEIGHT * _current_build_role_multiplier(_enemy_scene)
 	var ranged_weight: float = 0.0
 	var swarm_weight: float = 0.0
+	var landmark_melee_multiplier: float = _current_landmark_enemy_multiplier(_enemy_scene)
 	if _ranged_enemy_scene != null:
-		ranged_weight = RANGED_ENEMY_WEIGHT * _current_build_role_multiplier(_ranged_enemy_scene)
+		ranged_weight = RANGED_ENEMY_WEIGHT * _current_build_role_multiplier(_ranged_enemy_scene) * _current_landmark_enemy_multiplier(_ranged_enemy_scene)
 	if _swarm_enemy_scene != null:
-		swarm_weight = SWARM_ENEMY_WEIGHT * _current_build_role_multiplier(_swarm_enemy_scene)
+		swarm_weight = SWARM_ENEMY_WEIGHT * _current_build_role_multiplier(_swarm_enemy_scene) * _current_landmark_enemy_multiplier(_swarm_enemy_scene)
+	melee_weight *= landmark_melee_multiplier
 	var total_weight: float = melee_weight + ranged_weight + swarm_weight
 
 	if current_state == "recovery":
@@ -652,7 +874,11 @@ func _current_elite_chance() -> float:
 	var pressure_bonus: float = _pressure * ELITE_PRESSURE_WEIGHT
 	var level_bonus: float = float(max(_player_level - 1, 0)) * ELITE_LEVEL_WEIGHT
 	var stage_multiplier: float = _current_run_stage_elite_multiplier()
-	return clamp((ELITE_BASE_CHANCE + time_bonus + pressure_bonus + level_bonus) * stage_multiplier, 0.0, ELITE_MAX_CHANCE)
+	var landmark_multiplier: float = 1.0
+	if _landmark_event_timer > 0.0 and _landmark_event_type == "elite_push":
+		landmark_multiplier = 1.35
+
+	return clamp((ELITE_BASE_CHANCE + time_bonus + pressure_bonus + level_bonus) * stage_multiplier * landmark_multiplier, 0.0, ELITE_MAX_CHANCE)
 
 func _current_run_stage_elite_multiplier() -> float:
 	match _run_stage:
@@ -754,42 +980,45 @@ func _current_spawn_group_size(enemy_scene: PackedScene) -> int:
 	var current_state: String = _encounter_composition
 	var active_enemy_count: int = _active_enemy_count()
 	var stage_burst_chance: float = _current_run_stage_spawn_burst_chance() * _current_build_spawn_burst_multiplier()
+	var landmark_burst_multiplier: float = 1.0
+	if _landmark_event_timer > 0.0:
+		landmark_burst_multiplier = _current_landmark_spawn_multiplier()
 
 	if current_state == "recovery":
 		return 1
 
 	if current_state == "build":
-		if active_enemy_count <= 2 and randf() < stage_burst_chance * 0.6:
+		if active_enemy_count <= 2 and randf() < stage_burst_chance * 0.6 * landmark_burst_multiplier:
 			return 2
 
 		return 1
 
 	if current_state == "pressure":
-		if enemy_scene == _swarm_enemy_scene and _burst_timer <= 0.0 and active_enemy_count >= 4 and randf() < stage_burst_chance:
+		if enemy_scene == _swarm_enemy_scene and _burst_timer <= 0.0 and active_enemy_count >= 4 and randf() < stage_burst_chance * landmark_burst_multiplier:
 			_burst_timer = burst_cooldown_seconds * 0.75
 			return 2
 
-		if enemy_scene == _ranged_enemy_scene and randf() < (stage_burst_chance + 0.10):
+		if enemy_scene == _ranged_enemy_scene and randf() < (stage_burst_chance + 0.10) * landmark_burst_multiplier:
 			return 2
 
-		if randf() < stage_burst_chance:
+		if randf() < stage_burst_chance * landmark_burst_multiplier:
 			return 2
 
 		return 1
 
 	if current_state == "spike":
-		if enemy_scene == _swarm_enemy_scene and _burst_timer <= 0.0 and active_enemy_count >= 4 and randf() < min(stage_burst_chance + 0.12, 0.55):
+		if enemy_scene == _swarm_enemy_scene and _burst_timer <= 0.0 and active_enemy_count >= 4 and randf() < min(stage_burst_chance + 0.12, 0.55) * landmark_burst_multiplier:
 			_burst_timer = burst_cooldown_seconds * 0.75
 			return 2
 
-		if _burst_timer <= 0.0 and randf() < max(stage_burst_chance, HIGH_PRESSURE_BURST_CHANCE):
+		if _burst_timer <= 0.0 and randf() < max(stage_burst_chance, HIGH_PRESSURE_BURST_CHANCE) * landmark_burst_multiplier:
 			_burst_timer = burst_cooldown_seconds
 			return 2
 
 		return 1
 
 	if _pacing_state == "high" and _pressure >= HIGH_PRESSURE_BURST_THRESHOLD and _burst_timer <= 0.0:
-		if randf() < max(stage_burst_chance, HIGH_PRESSURE_BURST_CHANCE):
+		if randf() < max(stage_burst_chance, HIGH_PRESSURE_BURST_CHANCE) * landmark_burst_multiplier:
 			_burst_timer = burst_cooldown_seconds
 			return 2
 
@@ -939,7 +1168,7 @@ func _setup_debug_ui() -> void:
 func _update_debug(delta: float) -> void:
 	_debug_timer -= delta
 	if _debug_label != null:
-		_debug_label.text = "PRES: %.2f\nENEMIES: %d/%d\nMELEE/RNG/SWM: %d/%d/%d\nELITES: %d/%d\nCD: %.2f\nSTATE: %s\nCOMP: %s\nRUN: %s\nBUILD: %s\nRELIEF: %.2f" % [
+		_debug_label.text = "PRES: %.2f\nENEMIES: %d/%d\nMELEE/RNG/SWM: %d/%d/%d\nELITES: %d/%d\nCD: %.2f\nSTATE: %s\nCOMP: %s\nRUN: %s\nBUILD: %s\nRELIEF: %.2f\nTRANS: %s %.2f\nEVENT: %s %.2f" % [
 			_pressure,
 			_active_enemy_count(),
 			_current_max_enemies(),
@@ -953,7 +1182,11 @@ func _update_debug(delta: float) -> void:
 			_encounter_composition,
 			_run_stage,
 			_current_player_build_identity(),
-			_tempo_relief_timer
+			_tempo_relief_timer,
+			_stage_transition_label,
+			_stage_transition_timer,
+			_landmark_event_type,
+			_landmark_event_timer
 		]
 
 	if _debug_timer > 0.0:
