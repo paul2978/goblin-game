@@ -89,6 +89,11 @@ GODOT API SAFETY RULES
 * ALWAYS split operations into intermediate variables
 * ALWAYS validate assumptions
 * ALWAYS use readable multi-step logic
+* ALWAYS verify which Godot node type owns a method
+* NEVER assume Node has access to 2D/3D world APIs
+* ALWAYS access world/physics APIs through the correct scene node
+* Prefer explicit typed scene references for physics queries
+* Verify inheritance before using engine-specific methods
 
 BAD:
 

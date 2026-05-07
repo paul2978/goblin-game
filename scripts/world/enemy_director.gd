@@ -159,7 +159,8 @@ func _is_spawn_blocked(spawn_position: Vector2) -> bool:
 	query.collide_with_areas = false
 	query.collide_with_bodies = true
 
-	var collisions: Array[Dictionary] = get_world_2d().direct_space_state.intersect_shape(query)
+	var direct_space_state: PhysicsDirectSpaceState2D = _gameplay_root.get_world_2d().direct_space_state
+	var collisions: Array[Dictionary] = direct_space_state.intersect_shape(query)
 	return not collisions.is_empty()
 
 # ============================================================================
