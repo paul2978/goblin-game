@@ -1,0 +1,73 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/prototype_world.gd" id="1_world"]
+
+[node name="PrototypeWorld" type="Node2D"]
+script = ExtResource("1_world")
+
+[node name="CanvasModulate" type="CanvasModulate" parent="."]
+color = Color(0.8, 0.84, 0.9, 1)
+
+[node name="ParallaxBackground" type="ParallaxBackground" parent="."]
+scroll_base_scale = Vector2(1, 1)
+
+[node name="SkyLayer" type="ParallaxLayer" parent="ParallaxBackground"]
+motion_scale = Vector2(0.05, 0.05)
+
+[node name="FarLayer" type="ParallaxLayer" parent="ParallaxBackground"]
+motion_scale = Vector2(0.15, 0.12)
+
+[node name="MidLayer" type="ParallaxLayer" parent="ParallaxBackground"]
+motion_scale = Vector2(0.3, 0.2)
+
+[node name="FogLayer" type="ParallaxLayer" parent="ParallaxBackground"]
+motion_scale = Vector2(0.45, 0.2)
+
+[node name="ForegroundLayer" type="ParallaxLayer" parent="ParallaxBackground"]
+motion_scale = Vector2(0.65, 0.3)
+
+[node name="Gameplay" type="Node2D" parent="."]
+
+[node name="GroundTileMap" type="TileMap" parent="Gameplay"]
+
+[node name="Collision" type="Node2D" parent="Gameplay"]
+
+[node name="PlayerSpawn" type="Marker2D" parent="Gameplay"]
+position = Vector2(1424, 544)
+
+[node name="EnemySpawns" type="Node2D" parent="Gameplay"]
+
+[node name="EnemySpawn_00" type="Marker2D" parent="Gameplay/EnemySpawns"]
+position = Vector2(416, 576)
+
+[node name="EnemySpawn_01" type="Marker2D" parent="Gameplay/EnemySpawns"]
+position = Vector2(944, 448)
+
+[node name="EnemySpawn_02" type="Marker2D" parent="Gameplay/EnemySpawns"]
+position = Vector2(1536, 352)
+
+[node name="EnemySpawn_03" type="Marker2D" parent="Gameplay/EnemySpawns"]
+position = Vector2(2016, 576)
+
+[node name="EnemySpawn_04" type="Marker2D" parent="Gameplay/EnemySpawns"]
+position = Vector2(2736, 416)
+
+[node name="FutureHooks" type="Node2D" parent="Gameplay"]
+
+[node name="DirectorSpawns" type="Node2D" parent="Gameplay/FutureHooks"]
+
+[node name="RewardHooks" type="Node2D" parent="Gameplay/FutureHooks"]
+
+[node name="CameraBounds" type="Node2D" parent="."]
+
+[node name="LeftLimit" type="Marker2D" parent="CameraBounds"]
+position = Vector2(0, 0)
+
+[node name="TopLimit" type="Marker2D" parent="CameraBounds"]
+position = Vector2(0, 0)
+
+[node name="RightLimit" type="Marker2D" parent="CameraBounds"]
+position = Vector2(3072, 0)
+
+[node name="BottomLimit" type="Marker2D" parent="CameraBounds"]
+position = Vector2(0, 960)

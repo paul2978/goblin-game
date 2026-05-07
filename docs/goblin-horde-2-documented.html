@@ -1,0 +1,1851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>goblin horde 2</title>
+    <style>
+        body { 
+            margin: 0; 
+            background: #000; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            flex-direction: column; 
+            font-family: monospace;
+            color: #fff;
+        }
+        canvas { 
+            border: 3px solid #555; 
+            box-shadow: 0 0 30px rgba(0,0,0,0.8); 
+            image-rendering: pixelated;
+        }
+        #info { 
+            margin-top: 15px; 
+            color: #0f8; 
+            text-align: center; 
+            font-size: 15px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="info">
+        R → New Level | A/D or ←/→ → Move | SPACE → Jump | W/S on ladder → Climb | J → Shoot | F → Debug
+    </div>
+
+    <script>
+        /*
+        ============================================================================
+        GOBLIN HORDE 2 - COMPREHENSIVE DOCUMENTATION
+        ============================================================================
+        
+        A procedural platformer dungeon game with pack-based enemy AI and
+        dynamic director-controlled spawning.
+        
+        ============================================================================
+        ARCHITECTURE OVERVIEW
+        ============================================================================
+        
+        This is a single-file HTML5 game with all logic in inline JavaScript.
+        The code is organized into strict sections with fixed ordering.
+        
+        RENDERING: Canvas-based (1200x720 viewport, 1800x350 world grid, 12px tiles)
+        LEVEL: Procedurally generated using random rooms + MST algorithm
+        PHYSICS: Simple tile-based collision with gravity and jumping
+        AI: Pack behavior system with state machine (Patrol/Regroup/Chase/Attack)
+        DIRECTOR: L4D-style pressure system + RoR-style credit accumulation
+        
+        ============================================================================
+        SECTION ORGANIZATION (DO NOT REORDER)
+        ============================================================================
+        
+        1.  CONSTANTS & GLOBALS
+            - Canvas setup, physics constants, game state variables
+            - Director system tracking (pressure, credits, timers)
+            - Player, enemies, pickups, projectiles arrays
+        
+        2.  INPUT HANDLING
+            - Keyboard event listeners (keydown/keyup)
+            - Tracks keys for movement, jump, shoot, debug toggle
+        
+        3.  GRID HELPERS
+            - isSolid(): Check if tile is solid
+            - isLadder(): Check if tile is ladder
+            - Core grid query functions used everywhere
+        
+        4.  LEVEL GENERATION - ROOMS
+            - Random room placement with overlap rejection
+            - Generates 100-175 rooms of varying sizes
+            - Rooms are the foundation for MST connectivity
+        
+        5.  LEVEL GENERATION - CORRIDORS
+            - Minimum Spanning Tree (Prim's algorithm) connects all rooms
+            - L-shaped corridors (80% horizontal-first bias)
+            - Combat "bulges" added to long corridors for variety
+        
+        6.  LEVEL GENERATION - PLATFORMS
+            - Adds platforms inside large rooms for vertical gameplay
+            - Auto-generates ladders for reachability
+            - Uses flood-fill to ensure platform accessibility
+        
+        7.  POST-GENERATION REPAIR
+            - Fixes ladder-floor intersection bugs
+            - Removes ladders that clip into floors
+            - Ensures clean, playable level geometry
+        
+        8.  PICKUPS
+            - placePickups(): Spawns gold, gems, chests in rooms
+            - Tile-based collection system
+        
+        9.  MAIN LEVEL GENERATION
+            - generateNewLevel(): Orchestrates entire level creation
+            - Calls rooms → MST → platforms → repair → pickups
+            - Initializes player spawn, director state, initial enemy burst
+        
+        10. ENEMY SPAWNING
+            - spawnEnemy(): Creates new enemy near player
+            - Elite unlock gates (time OR kill threshold)
+            - Elite credit requirement (2x base cost)
+            - Elite spawn cooldown (15 seconds between elites)
+            - Personality system (bravery, aggression range)
+        
+        11. COLLISION DETECTION
+            - checkCollision(): Returns {left, right, top, bottom, onLadder}
+            - Samples tile grid at entity bounds
+            - Used by both player and enemies
+        
+        12. GAME UPDATE (Main simulation loop)
+            Subsections in order:
+            
+            a. Player Input Handling
+               - Read keys, apply movement/jump
+               - Ladder climbing logic
+               - Projectile firing (J key)
+            
+            b. Player Physics
+               - Apply gravity
+               - Update velocity and position
+               - Air control vs ground control
+            
+            c. Player Collision Response
+               - Check grid collisions
+               - Resolve overlaps (push out of walls/floors)
+               - Stop velocity on collision
+            
+            d. Enemy AI State Machine
+               - For each enemy: detect player, count nearby allies
+               - State transitions based on pack size and distance
+            
+            e. Pack Behavior Calculation
+               - Count allies within 7 tiles
+               - Calculate pack size for each enemy
+            
+            f. State Machine: Patrol → Regroup → Chase → Attack
+               - Patrol: Solo enemies wander
+               - Regroup: Vulnerable enemies flee to allies (speed 13, faster than player)
+               - Chase: Pack (3+ enemies) pursues player (speed 3.0)
+               - Attack: Within 2 tiles, stop and damage player
+            
+            g. Enemy Movement & Physics
+               - Apply state-based movement speeds
+               - Apply gravity, update position
+               - Handle jumping and wall turning
+            
+            h. Director System Update
+               - Track game time (for elite unlock)
+               - Decrement elite spawn cooldown
+               - Calculate pressure from player movement + enemy density
+               - Accumulate spawn credits (rate increases with pressure)
+               - Track low pressure duration for failsafe
+            
+            i. Enemy Spawn Timer
+               - Check every 0.5 seconds
+               - Credit saving rule: skip spawning if 12+ enemies present
+               - Pressure failsafe: force spawn after 30s low pressure + 7+ credits
+               - Conditional credit cap: clamp to 10 only when NOT saving
+            
+            j. Pickup Collision Detection
+               - Tile-based collision check
+               - Award gold/gems, heal from chests
+            
+            k. Projectile Update & Collision
+               - Move projectiles
+               - Check enemy hits, apply damage
+               - Remove expired projectiles
+            
+            l. Camera Follow System
+               - Smooth camera tracking on player
+               - Clamp to world bounds
+        
+        13. RENDERING
+            - Clear screen, translate by camera
+            - Draw tiles (solid, ladders)
+            - Draw pickups (gold, gems, chests)
+            - Draw player with health bar
+            - Draw enemies with state indicators (P/R/C/A letters)
+            - Draw projectiles
+            - Draw minimap
+            - Draw runtime debug overlay (if enabled)
+        
+        14. MINIMAP & DEBUG OVERLAY
+            - drawMinimap(): Top-right corner, shows rooms and player position
+            - (Old debug overlay was replaced by Runtime Debug Overlay)
+        
+        15. RUNTIME DEBUG OVERLAY
+            - drawRuntimeDebugOverlay(): Comprehensive real-time stats
+            - Shows: enemy counts by state, elite counts, kills
+            - Shows: director credits, rate, pressure, spawn timer, status
+            - Shows: elite unlock status, elite cooldown
+            - Read-only visualization, no gameplay impact
+        
+        16. MAIN LOOP & INITIALIZATION
+            - gameLoop(): RequestAnimationFrame loop
+            - Calculates delta time
+            - Calls update() and render()
+            - Initial level generation on load
+        
+        ============================================================================
+        KEY SYSTEMS EXPLAINED
+        ============================================================================
+        
+        --- PHYSICS ---
+        Gravity: 0.5 per frame
+        Jump: -11 initial velocity (reaches ~6 tiles high)
+        Movement: 12 units/frame on ground, 8.4 in air (0.7x air control)
+        Max fall speed: 15 units/frame
+        
+        --- COLLISION ---
+        Entity bounds: ±0.4 horizontal, -0.9 to 0 vertical (from position)
+        Bottom check: samples y + 0.1 to detect ground slightly below feet
+        Response: Push out to nearest grid-aligned position
+        
+        --- PACK AI ---
+        Detection range: 14 tiles (Math.hypot distance to player)
+        Pack radius: 7 tiles (count allies within this range)
+        Pack threshold: 3+ enemies required to chase
+        
+        States:
+        - Patrol: speed 0.75, wander back/forth
+        - Regroup: speed 13 (faster than player's 12), flee to allies
+        - Chase: speed 3.0, full aggression toward player
+        - Attack: speed 0, deal 5-10 damage (grunts) or 15-25 (elites)
+        
+        --- DIRECTOR SYSTEM ---
+        Credit accumulation: 1.0/sec × (1 + pressure × 0.5)
+        Credit cost: 1.5 per enemy spawn
+        Credit cap: 10 (but can exceed while saving credits)
+        
+        Pressure calculation (every 3 seconds):
+        - Activity = player movement distance
+        - Density = enemy count / 25
+        - Pressure = (activity × 0.5 + density × 0.5) × 2 - 1
+        - Range: -1 (calm) to +1 (intense)
+        
+        Spawn rules:
+        - Check every 0.5 seconds
+        - Skip if enemy count >= 12 (credit saving)
+        - Force spawn if pressure < -0.3 for 30s AND credits >= 7 (failsafe)
+        - Credit cap only applies when NOT saving
+        
+        --- ELITE SYSTEM ---
+        Unlock gates:
+        - 10 kills OR 60 seconds game time
+        
+        Spawn requirements:
+        - Must be unlocked
+        - Must have 3.0+ credits (2x normal cost)
+        - Must be off 15-second cooldown
+        - 35% chance when all conditions met
+        
+        Elite properties:
+        - Larger size (+4px border)
+        - Higher damage (15-25 vs 5-10)
+        - Faster attack rate (1.0s vs 1.5s cooldown)
+        - Always brave (high aggression, low fear)
+        - Visual: Purple colors, white borders when attacking
+        
+        --- LEVEL GENERATION ---
+        1. Place 100-175 random rooms with overlap rejection
+        2. Connect all rooms with MST (Prim's algorithm)
+        3. Carve L-shaped corridors (80% horizontal-first)
+        4. Add combat bulges to long corridors
+        5. Place platforms in large rooms with ladders
+        6. Repair ladder-floor intersections
+        7. Spawn pickups in rooms
+        
+        --- CONTROLS ---
+        R: Generate new level
+        A/D or ←/→: Move left/right
+        Space or W: Jump
+        W/S on ladder: Climb up/down
+        J: Shoot projectile
+        F: Toggle debug overlay
+        
+        ============================================================================
+        IMPORTANT CONSTRAINTS
+        ============================================================================
+        
+        - Section order is FIXED - do not reorder
+        - Variable names are authoritative - do not rename
+        - Make minimal changes - touch fewest sections
+        - No refactoring unless explicitly requested
+        - Keep game playable at all times
+        - Debug overlay is read-only - no simulation logic
+        
+        ============================================================================
+        */
+        
+        // ============================================================================
+        // CONSTANTS & GLOBALS
+        // ============================================================================
+        
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        const TILE_SIZE = 12;
+        const WIDTH = 1800;
+        const HEIGHT = 350;
+        
+        canvas.width = 1200;
+        canvas.height = 720;
+        
+        // Physics constants
+        const GRAVITY = 0.5;
+        const JUMP_VELOCITY = -11;
+        const MOVE_SPEED = 12;
+        const MAX_FALL_SPEED = 15;
+        const AIR_CONTROL = 0.7;
+        
+        // Calculate max jump height from physics (discrete simulation approximation)
+        const MAX_JUMP_HEIGHT = Math.ceil(Math.abs(JUMP_VELOCITY) / 2);
+        
+        let level = null;
+        let player = { x: 0, y: 0, vx: 0, vy: 0, onGround: false, onLadder: false, facing: 1, health: 100, maxHealth: 100 };
+        let enemies = [];
+        let pickups = [];
+        let projectiles = [];
+        let keys = {};
+        let lastTime = 0;
+        let spawnTimer = 0;
+        const SPAWN_CHECK_INTERVAL = 0.5; // Check spawns every 0.5 seconds
+        const SPAWN_CREDIT_RATE = 1.0; // Credits per second
+        const SPAWN_COST = 1.5; // Cost to spawn one enemy
+        let camera = { x: 0, y: 0 };
+        
+        // NEW: Director system variables
+        let director = { 
+            pressure: 0, 
+            lastX: 0, 
+            lastY: 0, 
+            distMoved: 0, 
+            updateTimer: 0, 
+            spawnCredits: 0,
+            gameTime: 0,           // Track elapsed game time for elite unlock
+            eliteSpawnCooldown: 0, // Cooldown timer after spawning an elite
+            lowPressureTimer: 0    // Track duration of low pressure for failsafe
+        };
+        let debugMode = false;
+        let killCount = 0; // Track kills for elite spawning
+
+        // ============================================================================
+        // INPUT HANDLING
+        // ============================================================================
+
+        window.addEventListener('keydown', e => {
+            keys[e.key.toLowerCase()] = true;
+            if (e.key.toLowerCase() === 'r') {
+                generateNewLevel();
+            }
+            // NEW: Toggle debug overlay
+            if (e.key.toLowerCase() === 'f') {
+                debugMode = !debugMode;
+            }
+            // Fire projectile
+            if (e.key.toLowerCase() === 'j' && level) {
+                projectiles.push({
+                    x: player.x,
+                    y: player.y - 0.5,
+                    vx: player.facing * 20,
+                    life: 1.5
+                });
+            }
+        });
+        window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+        // ============================================================================
+        // GRID HELPERS
+        // ============================================================================
+
+        function createGrid() {
+            return Array.from({length: HEIGHT}, () => 
+                Array.from({length: WIDTH}, () => ({solid: true, ladder: false}))
+            );
+        }
+
+        function isSolid(grid, x, y) {
+            if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) return true;
+            return grid[y][x].solid;
+        }
+
+        function isLadder(grid, x, y) {
+            if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) return false;
+            return grid[y][x].ladder;
+        }
+
+        function carveAir(x, y, grid) {
+            if (x >= 1 && x < WIDTH-1 && y >= 1 && y < HEIGHT-1) {
+                grid[y][x] = {solid: false, ladder: false};
+            }
+        }
+
+        function makeSolid(x, y, grid) {
+            if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
+                grid[y][x] = {solid: true, ladder: false};
+            }
+        }
+
+        function placeLadder(x, y, grid) {
+            if (x >= 1 && x < WIDTH-1 && y >= 1 && y < HEIGHT-1) {
+                grid[y][x] = {solid: false, ladder: true};
+            }
+        }
+
+        // ============================================================================
+        // LEVEL GENERATION - ROOMS
+        // ============================================================================
+
+        // Carves out a room with solid floor and walls
+        function placeRoom(grid, room) {
+            // Carve out room interior - fully open
+            for (let y = room.y + 1; y < room.y + room.h - 1; y++) {
+                for (let x = room.x + 1; x < room.x + room.w - 1; x++) {
+                    carveAir(x, y, grid);
+                }
+            }
+            // Ensure solid floor at bottom
+            for (let x = room.x; x < room.x + room.w; x++) {
+                makeSolid(x, room.y + room.h - 1, grid);
+            }
+            // Side walls only at edges
+            for (let y = room.y; y < room.y + room.h; y++) {
+                makeSolid(room.x, y, grid);
+                makeSolid(room.x + room.w - 1, y, grid);
+            }
+        }
+
+        function roomsOverlap(r1, r2) {
+            return !(r1.x + r1.w + 3 < r2.x || r1.x > r2.x + r2.w + 3 ||
+                     r1.y + r1.h + 3 < r2.y || r1.y > r2.y + r2.h + 3);
+        }
+
+        function buildMST(rooms) {
+            // Minimum Spanning Tree using Prim's algorithm
+            if (rooms.length === 0) return [];
+            
+            const edges = [];
+            const inTree = new Set([0]);
+            const notInTree = new Set(rooms.map((_, i) => i).slice(1));
+            
+            while (notInTree.size > 0) {
+                let minDist = Infinity;
+                let bestEdge = null;
+                
+                for (const i of inTree) {
+                    for (const j of notInTree) {
+                        // Weight vertical distance 3x more to prefer horizontal connections
+                        const dist = Math.abs(rooms[i].cx - rooms[j].cx) + 
+                                    Math.abs(rooms[i].cy - rooms[j].cy) * 3;
+                        if (dist < minDist) {
+                            minDist = dist;
+                            bestEdge = {from: i, to: j};
+                        }
+                    }
+                }
+                
+                if (bestEdge) {
+                    edges.push(bestEdge);
+                    inTree.add(bestEdge.to);
+                    notInTree.delete(bestEdge.to);
+                }
+            }
+            
+            return edges;
+        }
+
+        // ============================================================================
+        // LEVEL GENERATION - CORRIDORS
+        // ============================================================================
+
+        // Connects two rooms with an L-shaped corridor
+        function connectRoomsLShaped(grid, r1, r2) {
+            const x1 = Math.floor(r1.cx);
+            const y1 = Math.floor(r1.cy);
+            const x2 = Math.floor(r2.cx);
+            const y2 = Math.floor(r2.cy);
+            
+            // Strongly prefer horizontal-first (80%) for side-scrolling feel
+            if (Math.random() < 0.8) {
+                // Horizontal then vertical
+                createHorizontalCorridor(grid, x1, x2, y1);
+                createVerticalCorridor(grid, x2, y1, y2);
+            } else {
+                // Vertical then horizontal
+                createVerticalCorridor(grid, x1, y1, y2);
+                createHorizontalCorridor(grid, x1, x2, y2);
+            }
+        }
+
+        function createHorizontalCorridor(grid, x1, x2, y) {
+            const startX = Math.min(x1, x2);
+            const endX = Math.max(x1, x2);
+            const corridorLen = endX - startX;
+            
+            for (let x = startX; x <= endX; x++) {
+                // Carve open corridor - 5 tiles high (was 4)
+                carveAir(x, y - 3, grid);
+                carveAir(x, y - 2, grid);
+                carveAir(x, y - 1, grid);
+                carveAir(x, y, grid);
+                carveAir(x, y + 1, grid);
+                // Solid floor
+                makeSolid(x, y + 2, grid);
+                
+                // Add combat bulges every ~15-25 tiles in long corridors
+                const distFromStart = x - startX;
+                if (corridorLen > 20 && distFromStart > 0 && distFromStart % (15 + Math.floor(Math.random() * 10)) < 8) {
+                    // Widen vertically for combat pocket
+                    for (let dy = -5; dy <= 2; dy++) {
+                        carveAir(x, y + dy, grid);
+                    }
+                    // Widen horizontally too
+                    for (let dx = -1; dx <= 1; dx++) {
+                        for (let dy = -5; dy <= 1; dy++) {
+                            carveAir(x + dx, y + dy, grid);
+                        }
+                    }
+                }
+            }
+        }
+
+        function createVerticalCorridor(grid, x, y1, y2) {
+            const startY = Math.min(y1, y2);
+            const endY = Math.max(y1, y2);
+            const heightDiff = Math.abs(y2 - y1);
+            
+            if (heightDiff <= MAX_JUMP_HEIGHT) {
+                // Small height difference - just open it up (jumpable)
+                for (let y = startY; y <= endY; y++) {
+                    for (let dx = -2; dx <= 2; dx++) {
+                        carveAir(x + dx, y, grid);
+                    }
+                }
+            } else {
+                // Break tall shafts into varied climbs
+                let currentY = startY;
+                let ladderX = x; // Horizontal position varies per segment
+                
+                while (currentY < endY) {
+                    // Vary segment height within safe limits
+                    const baseHeight = MAX_JUMP_HEIGHT + Math.floor(Math.random() * (MAX_JUMP_HEIGHT - 2));
+                    const segmentEnd = Math.min(currentY + baseHeight, endY);
+                    
+                    // Occasionally use jumpable ledge instead of ladder (30% chance, if segment is short enough)
+                    const useLedge = Math.random() < 0.3 && (segmentEnd - currentY) <= MAX_JUMP_HEIGHT;
+                    
+                    // Shift ladder horizontally ±1-2 tiles per segment
+                    const xShift = Math.floor(Math.random() * 3) - 1;
+                    const newLadderX = Math.max(2, Math.min(WIDTH - 3, ladderX + xShift));
+                    
+                    // Carve space and connect from previous ladder position
+                    for (let y = currentY; y <= segmentEnd; y++) {
+                        for (let dx = -3; dx <= 3; dx++) {
+                            carveAir(ladderX + dx, y, grid);
+                            if (newLadderX !== ladderX) carveAir(newLadderX + dx, y, grid);
+                        }
+                        // Place ladder (unless using ledge variant)
+                        if (!useLedge && y >= 0 && y < HEIGHT) {
+                            grid[y][newLadderX].ladder = true;
+                        }
+                    }
+                    
+                    ladderX = newLadderX;
+                    
+                    // Add intermediate platform/ledge if not at the end
+                    if (segmentEnd < endY) {
+                        // Vary platform width and offset
+                        const platOffset = Math.floor(Math.random() * 3) - 1;
+                        const platWidth = 3 + Math.floor(Math.random() * 4);
+                        
+                        for (let dx = -platWidth; dx <= platWidth; dx++) {
+                            const px = ladderX + platOffset + dx;
+                            if (px >= 0 && px < WIDTH) {
+                                makeSolid(px, segmentEnd + 1, grid);
+                                carveAir(px, segmentEnd, grid);
+                                carveAir(px, segmentEnd - 1, grid);
+                            }
+                        }
+                        // Ladder passes through platform (if using ladder)
+                        if (!useLedge) {
+                            grid[segmentEnd + 1][ladderX] = {solid: false, ladder: true};
+                        }
+                    }
+                    
+                    currentY = segmentEnd + 2;
+                }
+            }
+        }
+
+        // ============================================================================
+        // LEVEL GENERATION - PLATFORMS
+        // ============================================================================
+
+        // Adds platforms inside rooms with ladders for unreachable ones
+        function addPlatforms(grid, rooms) {
+            for (const room of rooms) {
+                // Only add platforms in tall enough rooms (reduced threshold for shorter rooms)
+                if (room.w < 12 || room.h < 8) continue;
+                
+                // Fewer platforms per room (1-2 instead of 2-4)
+                const numPlatforms = 1 + Math.floor(Math.random() * 2);
+                
+                for (let i = 0; i < numPlatforms; i++) {
+                    // Wider platforms for horizontal feel
+                    const pw = 8 + Math.floor(Math.random() * 12);
+                    const px = room.x + 2 + Math.floor(Math.random() * Math.max(1, room.w - pw - 4));
+                    const py = room.y + 3 + Math.floor(i * (room.h - 6) / numPlatforms);
+                    
+                    // Place platform
+                    for (let x = px; x < px + pw && x < WIDTH; x++) {
+                        if (py >= 0 && py < HEIGHT) {
+                            makeSolid(x, py, grid);
+                            // Clear space above for player to stand
+                            for (let clearY = py - 1; clearY >= py - MAX_JUMP_HEIGHT && clearY >= 0; clearY--) {
+                                carveAir(x, clearY, grid);
+                            }
+                        }
+                    }
+                    
+                    // Check if platform needs a ladder (can't be reached by jump from below)
+                    const lx = px + Math.floor(pw / 2);
+                    let needsLadder = true;
+                    
+                    // Check if there's a platform or ground within jump distance below
+                    for (let checkY = py + 1; checkY <= py + MAX_JUMP_HEIGHT + 1 && checkY < HEIGHT; checkY++) {
+                        if (grid[checkY][lx].solid) {
+                            const jumpHeight = checkY - py;
+                            if (jumpHeight <= MAX_JUMP_HEIGHT) {
+                                needsLadder = false;
+                            }
+                            break;
+                        }
+                    }
+                    
+                    // Always add ladder if no reachable ground found within jump range
+                    if (needsLadder) {
+                        // Find ground or platform below
+                        let groundY = py + 1;
+                        while (groundY < HEIGHT - 1 && !grid[groundY][lx].solid) {
+                            groundY++;
+                        }
+                        
+                        const ladderLength = groundY - py - 1;
+                        if (ladderLength >= 1) {
+                            // Place ladder from ground up to AND THROUGH the platform
+                            for (let ly = py; ly < groundY; ly++) {
+                                if (ly >= 0 && ly < HEIGHT) {
+                                    grid[ly][lx] = {solid: false, ladder: true};
+                                }
+                            }
+                            
+                            // Add one ladder tile above platform for clean mounting
+                            if (py - 1 >= 0) {
+                                grid[py - 1][lx] = {solid: false, ladder: true};
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // ============================================================================
+        // POST-GENERATION REPAIR
+        // ============================================================================
+        
+        // Post-process to fix all ladder-floor intersections
+        function fixLadderIntersections(grid) {
+            // Scan each column for ladders that need to pass through floors
+            for (let x = 1; x < WIDTH - 1; x++) {
+                for (let y = HEIGHT - 2; y >= 1; y--) {
+                    // If this is a ladder tile
+                    if (grid[y][x].ladder && !grid[y][x].solid) {
+                        // Check if there's a solid tile directly above (a floor/platform blocking the way)
+                        if (grid[y - 1][x].solid && !grid[y - 1][x].ladder) {
+                            // Check if there's air above that solid (it's a floor, not a ceiling)
+                            if (y >= 2 && !grid[y - 2][x].solid) {
+                                // Cut through the floor - make it a ladder tile
+                                grid[y - 1][x] = {solid: false, ladder: true};
+                                // Add one tile above for clean mounting
+                                if (y >= 3 && !grid[y - 2][x].ladder) {
+                                    grid[y - 2][x] = {solid: false, ladder: true};
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Also check: if this is a solid tile with ladder directly below,
+                    // and air above, make it passable
+                    if (grid[y][x].solid && !grid[y][x].ladder) {
+                        if (y + 1 < HEIGHT && grid[y + 1][x].ladder) {
+                            if (y >= 1 && !grid[y - 1][x].solid) {
+                                grid[y][x] = {solid: false, ladder: true};
+                                // Add mounting tile above
+                                if (!grid[y - 1][x].ladder) {
+                                    grid[y - 1][x] = {solid: false, ladder: true};
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Post-generation repair pass to ensure all ladders and platforms are reachable
+        function repairReachability(grid) {
+            // PASS 1: Ensure all ladder bases are reachable
+            // Scan each column for ladder tiles
+            for (let x = 1; x < WIDTH - 1; x++) {
+                // Find the lowest ladder tile in this column
+                let lowestLadderY = -1;
+                for (let y = HEIGHT - 2; y >= 1; y--) {
+                    if (grid[y][x].ladder) {
+                        lowestLadderY = y;
+                        break;
+                    }
+                }
+                
+                if (lowestLadderY === -1) continue; // No ladder in this column
+                
+                // Check if there's solid ground within jump height below the ladder base
+                let hasReachableGround = false;
+                for (let checkY = lowestLadderY + 1; checkY <= lowestLadderY + MAX_JUMP_HEIGHT && checkY < HEIGHT; checkY++) {
+                    if (grid[checkY][x].solid) {
+                        hasReachableGround = true;
+                        break;
+                    }
+                }
+                
+                // If no reachable ground, extend ladder down to nearest solid
+                if (!hasReachableGround) {
+                    let groundY = lowestLadderY + 1;
+                    while (groundY < HEIGHT - 1 && !grid[groundY][x].solid) {
+                        groundY++;
+                    }
+                    // Extend ladder down to one tile above ground
+                    for (let ly = lowestLadderY + 1; ly < groundY; ly++) {
+                        grid[ly][x] = {solid: false, ladder: true};
+                    }
+                }
+            }
+            
+            // PASS 2: Ensure all platform tiles are reachable
+            // Scan grid for platform tiles (solid with air above)
+            for (let y = 2; y < HEIGHT - 2; y++) {
+                for (let x = 2; x < WIDTH - 2; x++) {
+                    // Skip if not a platform tile (solid with air above)
+                    if (!grid[y][x].solid || grid[y - 1][x].solid) continue;
+                    
+                    // Check if reachable: solid or ladder within jump height below, within ±2 horizontal
+                    let isReachable = false;
+                    for (let checkY = y + 1; checkY <= y + MAX_JUMP_HEIGHT && checkY < HEIGHT; checkY++) {
+                        for (let dx = -2; dx <= 2; dx++) {
+                            const cx = x + dx;
+                            if (cx < 0 || cx >= WIDTH) continue;
+                            if (grid[checkY][cx].solid || grid[checkY][cx].ladder) {
+                                isReachable = true;
+                                break;
+                            }
+                        }
+                        if (isReachable) break;
+                    }
+                    
+                    // If not reachable, add a ladder straight down to nearest solid
+                    if (!isReachable) {
+                        let groundY = y + 1;
+                        while (groundY < HEIGHT - 1 && !grid[groundY][x].solid) {
+                            groundY++;
+                        }
+                        // Place ladder from platform down to ground (cutting through platform)
+                        for (let ly = y; ly < groundY; ly++) {
+                            grid[ly][x] = {solid: false, ladder: true};
+                        }
+                        // Add mounting tile above
+                        if (y - 1 >= 0) {
+                            grid[y - 1][x] = {solid: false, ladder: true};
+                        }
+                    }
+                }
+            }
+        }
+        
+        // ============================================================================
+        // PICKUPS
+        // ============================================================================
+        
+        // Place collectible pickups after level is fully generated
+        function placePickups(grid, rooms) {
+            const placed = [];
+            const numPickups = 15 + Math.floor(Math.random() * 10);
+            
+            // Collect all valid floor positions (solid with air above)
+            const validSpots = [];
+            for (let y = 2; y < HEIGHT - 2; y++) {
+                for (let x = 2; x < WIDTH - 2; x++) {
+                    // Must be air with solid floor below, not a ladder
+                    if (!grid[y][x].solid && !grid[y][x].ladder && 
+                        grid[y + 1][x].solid && !grid[y + 1][x].ladder &&
+                        !grid[y - 1][x].solid) {
+                        validSpots.push({x, y});
+                    }
+                }
+            }
+            
+            if (validSpots.length === 0) return placed;
+            
+            // Shuffle valid spots
+            for (let i = validSpots.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [validSpots[i], validSpots[j]] = [validSpots[j], validSpots[i]];
+            }
+            
+            // Place pickups, ensuring minimum spacing
+            const MIN_SPACING = 15;
+            for (const spot of validSpots) {
+                if (placed.length >= numPickups) break;
+                
+                // Check spacing from other pickups
+                let tooClose = false;
+                for (const p of placed) {
+                    const dist = Math.abs(p.x - spot.x) + Math.abs(p.y - spot.y);
+                    if (dist < MIN_SPACING) {
+                        tooClose = true;
+                        break;
+                    }
+                }
+                if (tooClose) continue;
+                
+                // Determine rarity based on location difficulty
+                // Check if spot is on a platform (harder to reach = rarer)
+                let isElevated = false;
+                for (let checkY = spot.y + 2; checkY < spot.y + MAX_JUMP_HEIGHT + 3 && checkY < HEIGHT; checkY++) {
+                    if (!grid[checkY][spot.x].solid) {
+                        isElevated = true;
+                        break;
+                    }
+                }
+                
+                // 0 = common (gold), 1 = uncommon (gem), 2 = rare (chest)
+                let type = 0;
+                if (isElevated && Math.random() < 0.4) {
+                    type = Math.random() < 0.3 ? 2 : 1;
+                } else if (Math.random() < 0.15) {
+                    type = 1;
+                }
+                
+                placed.push({
+                    x: spot.x,
+                    y: spot.y,
+                    type: type,
+                    collected: false
+                });
+            }
+            
+            return placed;
+        }
+
+        // ============================================================================
+        // MAIN LEVEL GENERATION
+        // ============================================================================
+
+        // Orchestrates full level generation: rooms, corridors, platforms, repairs, pickups
+        function generateNewLevel() {
+            const grid = createGrid();
+            const rooms = [];
+
+            const numRooms = 100 + Math.floor(Math.random() * 75);
+            
+            for (let i = 0; i < numRooms; i++) {
+                // Bias rooms to be wider than tall (more horizontal)
+                const w = 15 + Math.floor(Math.random() * 25);
+                const h = 6 + Math.floor(Math.random() * 8);
+                const x = 5 + Math.floor(Math.random() * (WIDTH - w - 10));
+                const y = 5 + Math.floor(Math.random() * (HEIGHT - h - 10));
+                const room = {x, y, w, h, cx: x + w/2, cy: y + h/2};
+
+                if (!rooms.some(r => roomsOverlap(r, room))) {
+                    placeRoom(grid, room);
+                    rooms.push(room);
+                }
+            }
+
+            if (rooms.length > 1) {
+                // Build Minimum Spanning Tree
+                const edges = buildMST(rooms);
+                
+                // Connect rooms according to MST
+                for (const edge of edges) {
+                    connectRoomsLShaped(grid, rooms[edge.from], rooms[edge.to]);
+                }
+                
+                // Add a few extra connections for loops
+                const extraConnections = Math.min(15, Math.floor(rooms.length / 3));
+                for (let i = 0; i < extraConnections; i++) {
+                    const r1 = rooms[Math.floor(Math.random() * rooms.length)];
+                    const r2 = rooms[Math.floor(Math.random() * rooms.length)];
+                    if (r1 !== r2) {
+                        connectRoomsLShaped(grid, r1, r2);
+                    }
+                }
+            }
+
+            addPlatforms(grid, rooms);
+            
+            // Fix any ladder-platform intersections
+            fixLadderIntersections(grid);
+            
+            // Repair pass: ensure all ladders and platforms are reachable
+            repairReachability(grid);
+
+            // Place player on ground in first room
+            const startRoom = rooms[0] || {x: WIDTH/2, y: HEIGHT/2, w: 5, h: 5};
+            const startX = Math.floor(startRoom.cx);
+            let startY = startRoom.y + 2;
+            
+            // Find ground level
+            while (startY < HEIGHT - 1 && !grid[startY + 1][startX].solid) {
+                startY++;
+            }
+
+            player = { 
+                x: startX, 
+                y: startY,
+                vx: 0, 
+                vy: 0, 
+                onGround: false,
+                onLadder: false,
+                facing: 1,
+                health: 100,
+                maxHealth: 100
+            };
+
+            // Initialize camera on player
+            const camW = canvas.width / TILE_SIZE;
+            const camH = canvas.height / TILE_SIZE;
+            camera.x = Math.max(0, Math.min(WIDTH - camW, startX - camW / 2));
+            camera.y = Math.max(0, Math.min(HEIGHT - camH, startY - camH / 2));
+
+            enemies = [];
+            projectiles = [];
+            spawnTimer = 0;
+            killCount = 0;
+            
+            // NEW: Reset director with initial spawn credits
+            director = { 
+                pressure: 0, 
+                lastX: startX, 
+                lastY: startY, 
+                distMoved: 0, 
+                updateTimer: 0, 
+                spawnCredits: 6,
+                gameTime: 0,
+                eliteSpawnCooldown: 0,
+                lowPressureTimer: 0
+            };
+            
+            // Place collectible items
+            pickups = placePickups(grid, rooms);
+
+            level = { grid, rooms };
+            
+            // Initial spawn burst - 3-5 enemies immediately
+            for (let i = 0; i < 3 + Math.floor(Math.random() * 3); i++) {
+                spawnEnemy();
+            }
+        }
+
+        // ============================================================================
+        // ENEMY SPAWNING
+        // ============================================================================
+
+        // Spawns an enemy in a room near the player
+        function spawnEnemy() {
+            if (!level || enemies.length > 50) return;
+            
+            // Prefer rooms near the player (sort by distance, pick from nearest 5)
+            const sortedRooms = level.rooms.slice().sort((a, b) => {
+                const distA = Math.abs(a.cx - player.x) + Math.abs(a.cy - player.y);
+                const distB = Math.abs(b.cx - player.x) + Math.abs(b.cy - player.y);
+                return distA - distB;
+            });
+            const nearbyRooms = sortedRooms.slice(0, Math.min(5, sortedRooms.length));
+            const room = nearbyRooms[Math.floor(Math.random() * nearbyRooms.length)];
+            
+            const ex = room.x + 2 + Math.random() * (room.w - 4);
+            let ey = room.y + 2;
+            
+            // Find ground
+            while (ey < HEIGHT - 1 && !level.grid[ey + 1][Math.floor(ex)].solid) {
+                ey++;
+            }
+            
+            // Spawn if not too close (min 8 tiles) - removed max distance check
+            const dist = Math.abs(ex - player.x) + Math.abs(ey - player.y);
+            if (dist > 8) {
+                // Elite unlock gate: require kill count OR game time threshold
+                const ELITE_UNLOCK_KILLS = 10;
+                const ELITE_UNLOCK_TIME = 60; // 60 seconds
+                const elitesUnlocked = killCount >= ELITE_UNLOCK_KILLS || director.gameTime >= ELITE_UNLOCK_TIME;
+                
+                // Elite credit threshold: require excess credits to spawn elite
+                const ELITE_CREDIT_REQUIREMENT = SPAWN_COST * 2.0; // 3.0 credits minimum
+                const hasEliteCredits = director.spawnCredits >= ELITE_CREDIT_REQUIREMENT;
+                
+                // Elite frequency limit: check cooldown
+                const ELITE_SPAWN_COOLDOWN = 15; // 15 seconds between elite spawns
+                const eliteCooldownExpired = director.eliteSpawnCooldown <= 0;
+                
+                // Determine if elite (35% chance if all conditions met - Amendment 4)
+                const canSpawnElite = elitesUnlocked && hasEliteCredits && eliteCooldownExpired;
+                const isElite = canSpawnElite && Math.random() < 0.35;
+                
+                // If spawning an elite, trigger cooldown
+                if (isElite) {
+                    director.eliteSpawnCooldown = ELITE_SPAWN_COOLDOWN;
+                }
+                
+                // Personality parameters (elites are braver and tougher)
+                const bravery = isElite ? 0.85 + Math.random() * 0.15 : 0.3 + Math.random() * 0.5;
+                const attackDamage = isElite ? 15 + Math.floor(Math.random() * 11) : 5 + Math.floor(Math.random() * 6);
+                enemies.push({
+                    x: ex,
+                    y: ey,
+                    vx: 0,
+                    vy: 0,
+                    dir: Math.random() > 0.5 ? 1 : -1,
+                    onGround: false,
+                    // AI state
+                    state: 'idle',
+                    isElite: isElite,
+                    bravery: bravery,
+                    aggressionRange: isElite ? 50 : 15 + bravery * 25,
+                    fearThreshold: isElite ? 5 : 3 - bravery * 2,
+                    pressure: 0,
+                    fleeTimer: 0,
+                    moraleBoost: 0, // Temporary boost from nearby elites
+                    // Attack properties
+                    attackDamage: attackDamage,
+                    attackCooldown: 0
+                });
+            }
+        }
+
+        // ============================================================================
+        // COLLISION DETECTION
+        // ============================================================================
+
+        // Checks collision with solid tiles and ladder presence
+        function checkCollision(x, y, grid) {
+            const left = Math.floor(x - 0.4);
+            const right = Math.floor(x + 0.4);
+            const top = Math.floor(y - 0.9);
+            const bottom = Math.floor(y + 0.1); // Check slightly below feet for ground
+            
+            return {
+                left: isSolid(grid, left, Math.floor(y - 0.4)),
+                right: isSolid(grid, right, Math.floor(y - 0.4)),
+                top: isSolid(grid, Math.floor(x), top),
+                bottom: isSolid(grid, Math.floor(x), bottom),
+                onLadder: isLadder(grid, Math.floor(x), Math.floor(y - 0.5))
+            };
+        }
+
+        // ============================================================================
+        // GAME UPDATE (Player, Director, Enemies, Pickups)
+        // ============================================================================
+
+        function update(delta) {
+            if (!level) return;
+            
+            // ========================================
+            // Player Input Handling
+            // ========================================
+            let moveX = 0;
+            if (keys['a'] || keys['arrowleft']) moveX = -1;
+            if (keys['d'] || keys['arrowright']) moveX = 1;
+            
+            // Track facing direction for projectiles
+            if (moveX !== 0) player.facing = moveX;
+            
+            const col = checkCollision(player.x, player.y, level.grid);
+            player.onGround = col.bottom;
+            player.onLadder = col.onLadder;
+            
+            // ========================================
+            // Player Physics
+            // ========================================
+            // Ladder climbing
+            if (player.onLadder) {
+                player.vy = 0;
+                if (keys['w'] || keys['arrowup']) player.vy = -3;
+                if (keys['s'] || keys['arrowdown']) player.vy = 3;
+                player.vx = moveX * MOVE_SPEED * 0.5;
+            } else {
+                // Jumping
+                if ((keys[' '] || keys['w'] || keys['arrowup']) && player.onGround) {
+                    player.vy = JUMP_VELOCITY;
+                }
+                
+                // Horizontal movement
+                if (player.onGround) {
+                    player.vx = moveX * MOVE_SPEED;
+                } else {
+                    player.vx += moveX * MOVE_SPEED * AIR_CONTROL * delta;
+                    player.vx = Math.max(-MOVE_SPEED, Math.min(MOVE_SPEED, player.vx));
+                }
+                
+                // Apply gravity
+                player.vy += GRAVITY;
+                player.vy = Math.min(player.vy, MAX_FALL_SPEED);
+            }
+            
+            // Apply velocity with friction
+            player.x += player.vx * delta;
+            player.y += player.vy * delta;
+            
+            if (player.onGround) {
+                player.vx *= 0.85;
+            }
+            
+            // ========================================
+            // Player Collision Response
+            // ========================================
+            const newCol = checkCollision(player.x, player.y, level.grid);
+            if (newCol.left) {
+                player.x = Math.floor(player.x) + 0.41;
+                player.vx = 0;
+            }
+            if (newCol.right) {
+                player.x = Math.ceil(player.x) - 0.41;
+                player.vx = 0;
+            }
+            if (newCol.top) {
+                player.y = Math.ceil(player.y);
+                player.vy = 0;
+            }
+            if (newCol.bottom) {
+                player.y = Math.floor(player.y);
+                player.vy = 0;
+            }
+            
+            // ========================================
+            // Enemy AI State Machine
+            // ========================================
+            for (const e of enemies) {
+                const eCol = checkCollision(e.x, e.y, level.grid);
+                e.onGround = eCol.bottom;
+                
+                // Calculate distance to player using Pythagorean distance
+                const distToPlayer = Math.hypot(e.x - player.x, e.y - player.y);
+                const dirToPlayer = player.x > e.x ? 1 : -1;
+                
+                // Decay attack cooldown
+                if (e.attackCooldown > 0) {
+                    e.attackCooldown -= delta;
+                }
+                
+                // ========================================
+                // Pack Behavior Calculation
+                // ========================================
+                // Count nearby allies within 7 tiles (pack size)
+                let packSize = 1; // Include self
+                let nearestAlly = null;
+                let nearestAllyDist = Infinity;
+                
+                for (const other of enemies) {
+                    if (other === e) continue;
+                    const dist = Math.hypot(other.x - e.x, other.y - e.y);
+                    if (dist < 7) {
+                        packSize++;
+                    }
+                    if (dist < nearestAllyDist) {
+                        nearestAllyDist = dist;
+                        nearestAlly = other;
+                    }
+                }
+                
+                // ========================================
+                // State Machine: Patrol → Regroup → Chase
+                // ========================================
+                const DETECTION_RANGE = 14;
+                const PACK_THRESHOLD = 3;
+                
+                if (distToPlayer < DETECTION_RANGE) {
+                    // Player detected
+                    if (packSize < PACK_THRESHOLD) {
+                        // Vulnerable - need backup
+                        e.state = 'regroup';
+                    } else {
+                        // Strong pack - attack!
+                        e.state = 'chase';
+                    }
+                } else {
+                    // Player not detected - patrol
+                    if (e.state !== 'patrol') {
+                        e.state = 'patrol';
+                    }
+                }
+                
+                // Check if close enough to attack
+                const attackRange = 2;
+                if (distToPlayer < attackRange && e.attackCooldown <= 0 && e.state === 'chase') {
+                    e.state = 'attack';
+                }
+                
+                // Calculate direction to nearest ally for regroup
+                const dirToAlly = nearestAlly ? (nearestAlly.x > e.x ? 1 : -1) : e.dir;
+                
+                // ========================================
+                // Enemy Movement & Physics
+                // ========================================
+                if (e.onGround) {
+                    const baseSpeed = 1.5;
+                    const maxSpeed = 3.0;
+                    
+                    if (e.state === 'attack') {
+                        // Stop and attack
+                        e.vx = 0;
+                        // Apply damage to player
+                        player.health -= e.attackDamage;
+                        player.health = Math.max(0, player.health);
+                        // Set cooldown
+                        e.attackCooldown = e.isElite ? 1.0 : 1.5;
+                        // After attacking, re-evaluate state
+                        e.state = 'patrol';
+                    } else if (e.state === 'patrol') {
+                        // Patrol: walk back and forth
+                        e.vx = e.dir * baseSpeed * 0.5;
+                        
+                        // Turn at walls or ledges
+                        const ahead = isSolid(level.grid, Math.floor(e.x + e.dir * 0.6), Math.floor(e.y));
+                        const ground = isSolid(level.grid, Math.floor(e.x + e.dir * 0.6), Math.floor(e.y) + 1);
+                        
+                        if (ahead || !ground) {
+                            e.dir *= -1;
+                        }
+                        
+                        // Random jump occasionally
+                        if (Math.random() < 0.005) {
+                            e.vy = JUMP_VELOCITY * 0.7;
+                        }
+                    } else if (e.state === 'regroup') {
+                        // Regroup: move toward nearest ally (flee speed faster than player)
+                        e.dir = dirToAlly;
+                        e.vx = e.dir * 13; // Faster than player's MOVE_SPEED of 12
+                        
+                        // Turn at walls
+                        const ahead = isSolid(level.grid, Math.floor(e.x + e.dir * 0.6), Math.floor(e.y));
+                        if (ahead) {
+                            e.dir *= -1;
+                        }
+                        
+                        // Jump if needed
+                        if (Math.random() < 0.01) {
+                            e.vy = JUMP_VELOCITY * 0.7;
+                        }
+                    } else if (e.state === 'chase') {
+                        // Chase: full speed toward player
+                        e.dir = dirToPlayer;
+                        e.vx = e.dir * maxSpeed;
+                        
+                        // Turn at walls
+                        const ahead = isSolid(level.grid, Math.floor(e.x + e.dir * 0.6), Math.floor(e.y));
+                        if (ahead) {
+                            e.dir *= -1;
+                        }
+                        
+                        // Jump more aggressively when chasing
+                        if (Math.random() < 0.015) {
+                            e.vy = JUMP_VELOCITY * 0.7;
+                        }
+                    }
+                } else {
+                    e.vx *= 0.95;
+                }
+                
+                e.vy += GRAVITY;
+                e.vy = Math.min(e.vy, MAX_FALL_SPEED);
+                
+                e.x += e.vx * delta;
+                e.y += e.vy * delta;
+                
+                // Enemy collision
+                const eNewCol = checkCollision(e.x, e.y, level.grid);
+                if (eNewCol.left) {
+                    e.x = Math.floor(e.x) + 0.41;
+                    e.vx = 0;
+                    e.dir *= -1;
+                }
+                if (eNewCol.right) {
+                    e.x = Math.ceil(e.x) - 0.41;
+                    e.vx = 0;
+                    e.dir *= -1;
+                }
+                if (eNewCol.top) {
+                    e.y = Math.ceil(e.y);
+                    e.vy = 0;
+                }
+                if (eNewCol.bottom) {
+                    e.y = Math.floor(e.y);
+                    e.vy = 0;
+                }
+            }
+            
+            // ========================================
+            // Director System Update
+            // ========================================
+            // Track game time for elite unlock
+            director.gameTime += delta;
+            
+            // Decrement elite spawn cooldown
+            if (director.eliteSpawnCooldown > 0) {
+                director.eliteSpawnCooldown -= delta;
+            }
+            
+            // Track player movement for pressure calculation
+            director.distMoved += Math.abs(player.x - director.lastX) + Math.abs(player.y - director.lastY);
+            director.lastX = player.x;
+            director.lastY = player.y;
+            director.updateTimer += delta;
+            
+            // Update pressure every 3 seconds
+            if (director.updateTimer >= 3) {
+                const activity = Math.min(1, 0.3 + director.distMoved / 150);
+                const enemyDensity = Math.min(1, enemies.length / 25);
+                director.pressure = Math.max(-1, Math.min(1, (activity * 0.5 + enemyDensity * 0.5) * 2 - 1));
+                director.distMoved = 0;
+                director.updateTimer = 0;
+            }
+            
+            // Track low pressure duration for failsafe
+            if (director.pressure < -0.3) {
+                director.lowPressureTimer += delta;
+            } else {
+                director.lowPressureTimer = 0;
+            }
+            
+            // Accumulate spawn credits continuously
+            const creditRate = SPAWN_CREDIT_RATE * (1 + director.pressure * 0.5); // Faster when pressure high
+            director.spawnCredits += creditRate * delta;
+            // Note: Credit cap is now applied conditionally in Enemy Spawn Timer section
+            
+            // ========================================
+            // Enemy Spawn Timer
+            // ========================================
+            // Continuous spawn checks (every 0.5 seconds)
+            spawnTimer += delta;
+            if (spawnTimer >= SPAWN_CHECK_INTERVAL) {
+                // Credit saving rule: don't always spend immediately
+                // If enemy count is above soft threshold, skip this spawn to accumulate credits
+                const softEnemyThreshold = 12;
+                const shouldSaveCredits = enemies.length >= softEnemyThreshold;
+                
+                // Amendment 3: Pressure failsafe - if pressure low for extended period with high credits, force spawn
+                const LOW_PRESSURE_THRESHOLD = 30; // 30 seconds of low pressure
+                const FAILSAFE_CREDIT_THRESHOLD = 7; // Need 7+ credits
+                const pressureFailsafe = director.lowPressureTimer >= LOW_PRESSURE_THRESHOLD && 
+                                        director.spawnCredits >= FAILSAFE_CREDIT_THRESHOLD;
+                
+                // Try to spend credits to spawn
+                if ((!shouldSaveCredits || pressureFailsafe) && director.spawnCredits >= SPAWN_COST && enemies.length < 50) {
+                    spawnEnemy();
+                    director.spawnCredits -= SPAWN_COST;
+                    
+                    // Reset low pressure timer on successful spawn
+                    if (pressureFailsafe) {
+                        director.lowPressureTimer = 0;
+                    }
+                }
+                
+                // Amendment 2: Credit cap behavior - clamp to 10 only when NOT saving credits
+                if (!shouldSaveCredits) {
+                    director.spawnCredits = Math.min(director.spawnCredits, 10);
+                }
+                
+                spawnTimer = 0;
+            }
+            
+            // ========================================
+            // Pickup Collision Detection
+            // ========================================
+            // Check pickup collisions
+            const playerTileX = Math.floor(player.x);
+            const playerTileY = Math.floor(player.y);
+            for (const p of pickups) {
+                if (p.collected) continue;
+                // Simple tile-based collision
+                if (Math.abs(p.x - playerTileX) <= 1 && Math.abs(p.y - playerTileY) <= 1) {
+                    p.collected = true;
+                    // Stub: log collection event
+                    const typeNames = ['gold', 'gem', 'chest'];
+                    console.log(`Collected ${typeNames[p.type]} at (${p.x}, ${p.y})`);
+                }
+            }
+            
+            // ========================================
+            // Projectile Update & Collision
+            // ========================================
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                const proj = projectiles[i];
+                proj.x += proj.vx * delta;
+                proj.life -= delta;
+                
+                // Remove if expired or hit wall
+                if (proj.life <= 0 || isSolid(level.grid, Math.floor(proj.x), Math.floor(proj.y))) {
+                    projectiles.splice(i, 1);
+                    continue;
+                }
+                
+                // Check enemy collision
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const e = enemies[j];
+                    if (Math.abs(proj.x - e.x) < 1 && Math.abs(proj.y - e.y) < 1) {
+                        // Add pressure to nearby enemies (fear spreading)
+                        for (const other of enemies) {
+                            if (other === e) continue;
+                            const dist = Math.abs(other.x - e.x) + Math.abs(other.y - e.y);
+                            if (dist < 15) {
+                                other.pressure += 1.5 * (1 - dist / 15);
+                                
+                                // Elite death morale shock: grunts panic
+                                if (e.isElite && !other.isElite) {
+                                    other.pressure += 2.0;
+                                    other.moraleBoost = -0.4; // Temporary bravery penalty
+                                }
+                            }
+                        }
+                        killCount++;
+                        enemies.splice(j, 1);
+                        projectiles.splice(i, 1);
+                        break;
+                    }
+                }
+            }
+            
+            // ========================================
+            // Camera Follow System
+            // ========================================
+            // Update camera to follow player
+            const camW = canvas.width / TILE_SIZE;
+            const camH = canvas.height / TILE_SIZE;
+            camera.x = player.x - camW / 2;
+            camera.y = player.y - camH / 2;
+            
+            // Keep camera in bounds
+            camera.x = Math.max(0, Math.min(WIDTH - camW, camera.x));
+            camera.y = Math.max(0, Math.min(HEIGHT - camH, camera.y));
+        }
+
+        // ============================================================================
+        // RENDERING
+        // ============================================================================
+
+        function draw() {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const ts = TILE_SIZE;
+            
+            // Calculate visible range
+            const startX = Math.floor(camera.x);
+            const startY = Math.floor(camera.y);
+            const endX = Math.min(WIDTH, Math.ceil(camera.x + canvas.width / ts));
+            const endY = Math.min(HEIGHT, Math.ceil(camera.y + canvas.height / ts));
+
+            // Draw grid with camera offset
+            for (let y = startY; y < endY; y++) {
+                for (let x = startX; x < endX; x++) {
+                    const tile = level.grid[y][x];
+                    const screenX = (x - camera.x) * ts;
+                    const screenY = (y - camera.y) * ts;
+                    
+                    if (tile.ladder) {
+                        ctx.fillStyle = '#0cf';
+                        ctx.fillRect(screenX + 4, screenY, 4, ts);
+                    } else if (tile.solid) {
+                        ctx.fillStyle = '#555';
+                        ctx.fillRect(screenX, screenY, ts, ts);
+                    }
+                }
+            }
+            
+            // Draw pickups with camera offset
+            for (const p of pickups) {
+                if (p.collected) continue;
+                const screenX = (p.x - camera.x) * ts;
+                const screenY = (p.y - camera.y) * ts;
+                
+                if (p.type === 0) {
+                    // Common: gold coin (yellow circle)
+                    ctx.fillStyle = '#fd0';
+                    ctx.beginPath();
+                    ctx.arc(screenX + ts/2, screenY + ts/2, ts/3, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (p.type === 1) {
+                    // Uncommon: gem (magenta diamond)
+                    ctx.fillStyle = '#f0f';
+                    ctx.beginPath();
+                    ctx.moveTo(screenX + ts/2, screenY + 2);
+                    ctx.lineTo(screenX + ts - 2, screenY + ts/2);
+                    ctx.lineTo(screenX + ts/2, screenY + ts - 2);
+                    ctx.lineTo(screenX + 2, screenY + ts/2);
+                    ctx.closePath();
+                    ctx.fill();
+                } else {
+                    // Rare: chest (orange box)
+                    ctx.fillStyle = '#f80';
+                    ctx.fillRect(screenX + 1, screenY + ts/3, ts - 2, ts * 2/3 - 1);
+                    ctx.fillStyle = '#fc0';
+                    ctx.fillRect(screenX + ts/2 - 2, screenY + ts/2, 4, 4);
+                }
+            }
+
+            // Draw projectiles with camera offset
+            ctx.fillStyle = '#ff0';
+            for (const proj of projectiles) {
+                const screenX = (proj.x - camera.x) * ts;
+                const screenY = (proj.y - camera.y) * ts;
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, 4, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Draw enemies with camera offset
+            for (const e of enemies) {
+                const screenX = (e.x - camera.x - 0.4) * ts;
+                const screenY = (e.y - camera.y - 0.9) * ts;
+                
+                // Color based on state with clear visual distinction
+                if (e.isElite) {
+                    // Elites: purple tones, larger, with borders
+                    if (e.state === 'attack') {
+                        ctx.fillStyle = '#f0f'; // Bright magenta
+                        ctx.fillRect(screenX - 2, screenY - 2, 0.8 * ts + 4, 0.9 * ts + 4);
+                        ctx.strokeStyle = '#fff';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(screenX - 2, screenY - 2, 0.8 * ts + 4, 0.9 * ts + 4);
+                    } else if (e.state === 'chase') {
+                        ctx.fillStyle = '#c0f'; // Bright purple
+                        ctx.fillRect(screenX - 2, screenY - 2, 0.8 * ts + 4, 0.9 * ts + 4);
+                    } else if (e.state === 'regroup') {
+                        ctx.fillStyle = '#90f'; // Medium purple
+                        ctx.fillRect(screenX - 2, screenY - 2, 0.8 * ts + 4, 0.9 * ts + 4);
+                    } else {
+                        ctx.fillStyle = '#608'; // Dark purple (patrol)
+                        ctx.fillRect(screenX - 2, screenY - 2, 0.8 * ts + 4, 0.9 * ts + 4);
+                    }
+                } else {
+                    // Grunts: highly distinct colors with clear borders
+                    if (e.state === 'attack') {
+                        ctx.fillStyle = '#fff'; // White
+                        ctx.fillRect(screenX, screenY, 0.8 * ts, 0.9 * ts);
+                        ctx.strokeStyle = '#f00';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(screenX, screenY, 0.8 * ts, 0.9 * ts);
+                    } else if (e.state === 'chase') {
+                        ctx.fillStyle = '#f00'; // Bright red - pack attack!
+                        ctx.fillRect(screenX, screenY, 0.8 * ts, 0.9 * ts);
+                        // Pulse effect for chasing
+                        ctx.strokeStyle = '#ff0';
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(screenX - 1, screenY - 1, 0.8 * ts + 2, 0.9 * ts + 2);
+                    } else if (e.state === 'regroup') {
+                        ctx.fillStyle = '#ff0'; // Bright yellow - seeking allies
+                        ctx.fillRect(screenX, screenY, 0.8 * ts, 0.9 * ts);
+                    } else {
+                        ctx.fillStyle = '#a66'; // Dim red (patrol)
+                        ctx.fillRect(screenX, screenY, 0.8 * ts, 0.9 * ts);
+                    }
+                }
+                
+                // Always show state label (not just in debug mode)
+                ctx.fillStyle = '#000';
+                ctx.font = 'bold 9px monospace';
+                const stateLabel = e.state === 'patrol' ? 'P' : 
+                                  e.state === 'regroup' ? 'R' : 
+                                  e.state === 'chase' ? 'C' : 
+                                  e.state === 'attack' ? 'A' : '?';
+                ctx.fillText(stateLabel, screenX + 2, screenY + 8);
+                
+                // Debug overlay (additional info when enabled)
+                if (debugMode) {
+                    ctx.fillStyle = '#fff';
+                    ctx.font = '8px monospace';
+                    const label = e.isElite ? `E:${e.state}` : e.state;
+                    ctx.fillText(label, screenX, screenY - 12);
+                    ctx.fillText(`B:${e.bravery.toFixed(1)}`, screenX, screenY - 4);
+                }
+            }
+
+            // Draw player with camera offset
+            ctx.fillStyle = '#0f8';
+            const playerScreenX = (player.x - camera.x - 0.4) * ts;
+            const playerScreenY = (player.y - camera.y - 0.9) * ts;
+            ctx.fillRect(playerScreenX, playerScreenY, 0.8 * ts, 0.9 * ts);
+            
+            // Draw health bar
+            const healthBarWidth = 200;
+            const healthBarHeight = 20;
+            const healthBarX = 10;
+            const healthBarY = canvas.height - 35;
+            
+            // Background
+            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+            ctx.fillRect(healthBarX - 2, healthBarY - 2, healthBarWidth + 4, healthBarHeight + 4);
+            
+            // Health bar (red to green gradient based on health)
+            const healthPercent = player.health / player.maxHealth;
+            ctx.fillStyle = healthPercent > 0.5 ? '#0f8' : (healthPercent > 0.25 ? '#fa0' : '#f33');
+            ctx.fillRect(healthBarX, healthBarY, healthBarWidth * healthPercent, healthBarHeight);
+            
+            // Border
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(healthBarX, healthBarY, healthBarWidth, healthBarHeight);
+            
+            // Health text
+            ctx.fillStyle = '#fff';
+            ctx.font = '12px monospace';
+            ctx.fillText(`HP: ${Math.ceil(player.health)}/${player.maxHealth}`, healthBarX + 5, healthBarY + 14);
+            
+            // Draw minimap
+            drawMinimap();
+            
+            // Draw runtime debug overlay
+            drawRuntimeDebugOverlay();
+        }
+        
+        // ============================================================================
+        // MINIMAP & DEBUG OVERLAY
+        // ============================================================================
+        
+        function drawMinimap() {
+            // Minimap with correct aspect ratio
+            const mapWidth = 300;
+            const mapHeight = Math.floor(mapWidth * (HEIGHT / WIDTH));
+            const mapX = canvas.width - mapWidth - 10;
+            const mapY = 10;
+            
+            const scaleX = mapWidth / WIDTH;
+            const scaleY = mapHeight / HEIGHT;
+            
+            // Background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(mapX - 2, mapY - 2, mapWidth + 4, mapHeight + 4);
+            
+            // Draw level tiles (sampled for performance)
+            const sampleRate = Math.max(1, Math.floor(WIDTH / mapWidth));
+            for (let y = 0; y < HEIGHT; y += sampleRate) {
+                for (let x = 0; x < WIDTH; x += sampleRate) {
+                    const tile = level.grid[y][x];
+                    if (tile.ladder) {
+                        ctx.fillStyle = '#0cf';
+                        ctx.fillRect(mapX + x * scaleX, mapY + y * scaleY, Math.max(1, scaleX * sampleRate), Math.max(1, scaleY * sampleRate));
+                    } else if (!tile.solid) {
+                        ctx.fillStyle = '#333';
+                        ctx.fillRect(mapX + x * scaleX, mapY + y * scaleY, Math.max(1, scaleX * sampleRate), Math.max(1, scaleY * sampleRate));
+                    }
+                }
+            }
+            
+            // Draw pickups on minimap
+            for (const p of pickups) {
+                if (p.collected) continue;
+                const colors = ['#fd0', '#f0f', '#f80'];
+                ctx.fillStyle = colors[p.type];
+                ctx.fillRect(mapX + p.x * scaleX - 1, mapY + p.y * scaleY - 1, 2, 2);
+            }
+            
+            // Draw enemies on minimap
+            ctx.fillStyle = '#f33';
+            for (const e of enemies) {
+                ctx.fillRect(mapX + e.x * scaleX - 1, mapY + e.y * scaleY - 1, 3, 3);
+            }
+            
+            // Draw player on minimap
+            ctx.fillStyle = '#0f8';
+            ctx.fillRect(mapX + player.x * scaleX - 1, mapY + player.y * scaleY - 1, 3, 3);
+            
+            // Draw camera viewport rectangle
+            const camW = canvas.width / TILE_SIZE;
+            const camH = canvas.height / TILE_SIZE;
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(
+                mapX + camera.x * scaleX,
+                mapY + camera.y * scaleY,
+                camW * scaleX,
+                camH * scaleY
+            );
+        }
+
+        // ============================================================================
+        // RUNTIME DEBUG OVERLAY
+        // ============================================================================
+        
+        function drawRuntimeDebugOverlay() {
+            if (!debugMode) return;
+            
+            // Count enemies by state (read-only)
+            let patrolCount = 0;
+            let regroupCount = 0;
+            let chaseCount = 0;
+            let attackCount = 0;
+            let eliteCount = 0;
+            let gruntCount = 0;
+            
+            for (const e of enemies) {
+                if (e.state === 'patrol') patrolCount++;
+                else if (e.state === 'regroup') regroupCount++;
+                else if (e.state === 'chase') chaseCount++;
+                else if (e.state === 'attack') attackCount++;
+                
+                if (e.isElite) eliteCount++;
+                else gruntCount++;
+            }
+            
+            // Calculate derived display values (read-only)
+            const creditCap = 10;
+            const currentRate = SPAWN_CREDIT_RATE * (1 + director.pressure * 0.5);
+            const nextSpawnIn = Math.max(0, SPAWN_CHECK_INTERVAL - spawnTimer);
+            
+            // Elite visibility (read-only)
+            const ELITE_UNLOCK_KILLS = 10;
+            const ELITE_UNLOCK_TIME = 60;
+            const elitesUnlocked = killCount >= ELITE_UNLOCK_KILLS || director.gameTime >= ELITE_UNLOCK_TIME;
+            const eliteCooldownRemaining = Math.max(0, director.eliteSpawnCooldown);
+            
+            // Derive director status string from existing state (no new logic)
+            let directorStatus = '';
+            if (director.spawnCredits >= creditCap) {
+                directorStatus = 'Credit capped';
+            } else if (director.spawnCredits >= SPAWN_COST && spawnTimer >= SPAWN_CHECK_INTERVAL) {
+                directorStatus = 'Eligible to spawn';
+            } else if (director.spawnCredits < SPAWN_COST) {
+                directorStatus = 'Saving credits';
+            } else {
+                directorStatus = 'Waiting for timer';
+            }
+            
+            // Render overlay panel
+            const panelX = 10;
+            const panelY = 10;
+            const panelWidth = 280;
+            const lineHeight = 16;
+            
+            // Calculate panel height based on content (increased for elite info)
+            const panelHeight = lineHeight * 20 + 10;
+            
+            // Semi-transparent black background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+            ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+            
+            // Border
+            ctx.strokeStyle = '#0f8';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+            
+            // Render text content
+            ctx.fillStyle = '#fff';
+            ctx.font = '12px monospace';
+            
+            let yOffset = panelY + 20;
+            
+            // Header
+            ctx.fillStyle = '#0f8';
+            ctx.fillText('=== RUNTIME DEBUG ===', panelX + 10, yOffset);
+            yOffset += lineHeight + 4;
+            
+            // Enemies section
+            ctx.fillStyle = '#fff';
+            ctx.fillText('ENEMIES', panelX + 10, yOffset);
+            yOffset += lineHeight;
+            ctx.fillText(`  Total: ${enemies.length}`, panelX + 10, yOffset);
+            yOffset += lineHeight;
+            ctx.fillText(`  Patrol:  ${patrolCount}`, panelX + 10, yOffset);
+            yOffset += lineHeight;
+            ctx.fillText(`  Regroup: ${regroupCount}`, panelX + 10, yOffset);
+            yOffset += lineHeight;
+            ctx.fillText(`  Chase:   ${chaseCount}`, panelX + 10, yOffset);
+            yOffset += lineHeight;
+            ctx.fillText(`  Attack:  ${attackCount}`, panelX + 10, yOffset);
+            yOffset += lineHeight;
+            ctx.fillText(`  Elites:  ${eliteCount}`, panelX + 10, yOffset);
+            yOffset += lineHeight;
+            ctx.fillText(`  Grunts:  ${gruntCount}`, panelX + 10, yOffset);
+            yOffset += lineHeight;
+            ctx.fillText(`  Kills:   ${killCount}`, panelX + 10, yOffset);
+            yOffset += lineHeight + 4;
+            
+            // Director section
+            ctx.fillText('DIRECTOR', panelX + 10, yOffset);
+            yOffset += lineHeight;
+            ctx.fillText(`  Credits:    ${director.spawnCredits.toFixed(2)} / ${creditCap.toFixed(1)}`, panelX + 10, yOffset);
+            yOffset += lineHeight;
+            ctx.fillText(`  Rate:       ${currentRate.toFixed(2)}/sec`, panelX + 10, yOffset);
+            yOffset += lineHeight;
+            ctx.fillText(`  Pressure:   ${director.pressure.toFixed(2)}`, panelX + 10, yOffset);
+            yOffset += lineHeight;
+            ctx.fillText(`  Next spawn: ${nextSpawnIn.toFixed(2)}s`, panelX + 10, yOffset);
+            yOffset += lineHeight;
+            ctx.fillText(`  Status:     ${directorStatus}`, panelX + 10, yOffset);
+            yOffset += lineHeight;
+            ctx.fillText(`  Last spawn: N/A`, panelX + 10, yOffset);
+            yOffset += lineHeight + 4;
+            
+            // Elite section
+            ctx.fillText('ELITES', panelX + 10, yOffset);
+            yOffset += lineHeight;
+            const unlockText = elitesUnlocked ? 'YES' : 'NO';
+            ctx.fillText(`  Unlocked:   ${unlockText}`, panelX + 10, yOffset);
+            yOffset += lineHeight;
+            ctx.fillText(`  Cooldown:   ${eliteCooldownRemaining.toFixed(1)}s`, panelX + 10, yOffset);
+            yOffset += lineHeight + 4;
+            
+            // Footer
+            ctx.fillStyle = '#888';
+            ctx.font = '11px monospace';
+            ctx.fillText('[F] Toggle Debug', panelX + 10, yOffset);
+        }
+
+        // ============================================================================
+        // MAIN LOOP & INITIALIZATION
+        // ============================================================================
+
+        function loop(time) {
+            if (!lastTime) lastTime = time;
+            const delta = Math.min((time - lastTime) / 1000, 0.1);
+            lastTime = time;
+
+            if (level) {
+                update(delta);
+                draw();
+            }
+
+            requestAnimationFrame(loop);
+        }
+
+        generateNewLevel();
+        requestAnimationFrame(loop);
+    </script>
+</body>
+</html>
