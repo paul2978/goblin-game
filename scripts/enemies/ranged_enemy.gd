@@ -26,8 +26,11 @@ const VOLTAIC_ATTACK_COLOR: Color = Color(0.94, 0.99, 1.0, 1.0)
 const HIT_FLASH_COLOR: Color = Color(1.0, 1.0, 1.0, 1.0)
 const IDLE_TURN_MIN: float = 0.90
 const IDLE_TURN_MAX: float = 2.10
-const ATTACK_WINDUP_SECONDS: float = 0.12
+const ATTACK_WINDUP_SECONDS: float = 0.18
+const ATTACK_RECOVERY_SECONDS: float = 0.24
 const STRAFE_TURN_SECONDS: float = 0.85
+const ATTACK_AIM_SCALE: Vector2 = Vector2(1.10, 0.96)
+const ATTACK_FLASH_SCALE: Vector2 = Vector2(1.16, 0.90)
 
 # ============================================================================
 # EXPORTED VARIABLES
@@ -292,7 +295,7 @@ func _resolve_ranged_attack() -> void:
 		return
 
 	_fire_projectile()
-	_attack_cooldown_timer = attack_cooldown
+	_attack_cooldown_timer = attack_cooldown + ATTACK_RECOVERY_SECONDS
 	_attack_primed = false
 	_state = STATE_STRAFE
 
@@ -384,6 +387,17 @@ func _update_visuals() -> void:
 		sprite_scale += Vector2(0.05, 0.03)
 	elif _state == STATE_ATTACK:
 		sprite_scale += Vector2(0.08, 0.05)
+		if _attack_windup_timer > 0.0:
+			var windup_ratio: float = clamp(_attack_windup_timer / ATTACK_WINDUP_SECONDS, 0.0, 1.0)
+			sprite_scale = Vector2(
+				sprite_scale.x * lerp(1.0, ATTACK_AIM_SCALE.x, windup_ratio),
+				sprite_scale.y * lerp(1.0, ATTACK_AIM_SCALE.y, windup_ratio)
+			)
+		elif _attack_cooldown_timer > 0.0:
+			sprite_scale = Vector2(
+				sprite_scale.x * ATTACK_FLASH_SCALE.x,
+				sprite_scale.y * ATTACK_FLASH_SCALE.y
+			)
 
 	_sprite.flip_h = _facing_direction > 0
 	_sprite.scale = _apply_elite_scale(sprite_scale)
@@ -395,6 +409,9 @@ func _current_visual_color() -> Color:
 
 	if _hit_flash_timer > 0.0:
 		return HIT_FLASH_COLOR
+
+	if _state == STATE_ATTACK and _attack_windup_timer > 0.0:
+		return Color(0.96, 0.97, 1.0, 1.0)
 
 	if _state == STATE_ATTACK:
 		if _elite_type == ELITE_VOLTAIC:

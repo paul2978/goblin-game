@@ -117,6 +117,17 @@ FUNCTION SAFETY RULES
 * Remove superseded helper methods immediately after refactors
 * Verify helper signatures remain consistent after iteration passes
 
+================================================================================
+STATE AND VARIABLE SAFETY RULES
+================================
+
+* ALWAYS declare new runtime state variables before using them in logic
+* ALWAYS verify timer and flag fields exist before wiring them into combat code
+* Prefer reusing an existing timer or flag when it already fits the behavior
+* Remove stale state references immediately after refactors
+* Verify new visual and combat reads match the variables declared in the script
+
+
 ============================================================================
 DEBUGGING RULES
 ===============

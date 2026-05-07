@@ -23,7 +23,10 @@ const VOLTAIC_ATTACK_COLOR: Color = Color(0.96, 0.99, 1.0, 1.0)
 const HIT_FLASH_COLOR: Color = Color(1.0, 1.0, 1.0, 1.0)
 const IDLE_TURN_MIN: float = 0.45
 const IDLE_TURN_MAX: float = 1.05
+const ATTACK_WINDUP_SECONDS: float = 0.06
+const ATTACK_RECOVERY_SECONDS: float = 0.18
 const RETREAT_SECONDS: float = 0.16
+const ATTACK_TWITCH_SCALE: Vector2 = Vector2(1.12, 0.90)
 
 # ============================================================================
 # EXPORTED VARIABLES
@@ -65,6 +68,8 @@ var _facing_direction: int = -1
 var _idle_direction: int = -1
 var _idle_turn_timer: float = 0.0
 var _attack_cooldown_timer: float = 0.0
+var _attack_windup_timer: float = 0.0
+var _attack_pending: bool = false
 var _retreat_timer: float = 0.0
 var _hit_flash_timer: float = 0.0
 var _death_flash_timer: float = 0.0
@@ -128,15 +133,20 @@ func _update_ai_state() -> void:
 		return
 
 	var distance_to_player: float = global_position.distance_to(_player.global_position)
-	if distance_to_player <= attack_range and _attack_cooldown_timer <= 0.0:
-		_state = STATE_ATTACK
+	if distance_to_player <= attack_range:
+		if _attack_cooldown_timer <= 0.0 or _state == STATE_ATTACK:
+			_state = STATE_ATTACK
+		else:
+			_state = STATE_CHASE
 		return
 
 	if distance_to_player <= detection_radius:
 		_state = STATE_CHASE
+		_attack_pending = false
 		return
 
 	_state = STATE_IDLE
+	_attack_pending = false
 	_update_idle_direction()
 
 func _update_idle_direction() -> void:
@@ -175,6 +185,7 @@ func _desired_direction() -> int:
 func _update_timers(delta: float) -> void:
 	_idle_turn_timer = max(_idle_turn_timer - delta, 0.0)
 	_attack_cooldown_timer = max(_attack_cooldown_timer - delta, 0.0)
+	_attack_windup_timer = max(_attack_windup_timer - delta, 0.0)
 	_retreat_timer = max(_retreat_timer - delta, 0.0)
 	_hit_flash_timer = max(_hit_flash_timer - delta, 0.0)
 	_death_flash_timer = max(_death_flash_timer - delta, 0.0)
@@ -200,6 +211,16 @@ func _apply_movement() -> void:
 	elif _state == STATE_RETREAT:
 		target_speed = direction * retreat_speed
 		acceleration = 30.0
+	elif _state == STATE_ATTACK:
+		if _attack_windup_timer > 0.0:
+			target_speed = 0.0
+			acceleration = 36.0
+		elif _attack_cooldown_timer > 0.0:
+			target_speed = 0.0
+			acceleration = 24.0
+		else:
+			target_speed = direction * chase_speed
+			acceleration = 28.0
 
 	velocity.x = move_toward(velocity.x, target_speed, acceleration)
 
@@ -211,6 +232,9 @@ func _apply_movement() -> void:
 		velocity.y = jump_velocity
 
 	if _state == STATE_RETREAT and is_on_floor() and _rng.randf() < 0.10:
+		velocity.y = jump_velocity
+
+	if _state == STATE_ATTACK and _attack_windup_timer > 0.0 and is_on_floor() and _rng.randf() < 0.20:
 		velocity.y = jump_velocity
 
 func _handle_obstacles() -> void:
@@ -256,10 +280,20 @@ func _resolve_contact_damage() -> void:
 	if distance_to_player > attack_range:
 		return
 
+	if not _attack_pending:
+		_attack_pending = true
+		_attack_windup_timer = ATTACK_WINDUP_SECONDS
+		_hit_flash_timer = max(_hit_flash_timer, ATTACK_WINDUP_SECONDS)
+		return
+
+	if _attack_windup_timer > 0.0:
+		return
+
 	if _player.has_method("apply_contact_damage"):
 		_player.apply_contact_damage(attack_damage, global_position)
 
-	_attack_cooldown_timer = attack_cooldown
+	_attack_cooldown_timer = attack_cooldown + ATTACK_RECOVERY_SECONDS
+	_attack_pending = false
 	_retreat_timer = RETREAT_SECONDS
 	_state = STATE_RETREAT
 	velocity.x *= 0.35
@@ -329,10 +363,20 @@ func _update_visuals() -> void:
 	sprite.flip_h = _facing_direction > 0
 
 	var speed_ratio: float = clamp(abs(velocity.x) / max(chase_speed, 1.0), 0.0, 1.0)
-	sprite.scale = _apply_elite_scale(Vector2(
+	var base_scale: Vector2 = Vector2(
 		1.0 + speed_ratio * 0.10,
 		1.0 - speed_ratio * 0.06
-	))
+	)
+	if _state == STATE_ATTACK and _attack_windup_timer > 0.0:
+		var windup_ratio: float = clamp(_attack_windup_timer / ATTACK_WINDUP_SECONDS, 0.0, 1.0)
+		base_scale = Vector2(
+			base_scale.x * lerp(1.0, ATTACK_TWITCH_SCALE.x, windup_ratio),
+			base_scale.y * lerp(1.0, ATTACK_TWITCH_SCALE.y, windup_ratio)
+		)
+	elif _state == STATE_ATTACK and _attack_cooldown_timer > 0.0:
+		base_scale = Vector2(base_scale.x * 1.08, base_scale.y * 0.95)
+
+	sprite.scale = _apply_elite_scale(base_scale)
 	sprite.self_modulate = _tint_elite_color(_current_visual_color())
 
 func _current_visual_color() -> Color:
@@ -341,6 +385,9 @@ func _current_visual_color() -> Color:
 
 	if _hit_flash_timer > 0.0:
 		return HIT_FLASH_COLOR
+
+	if _state == STATE_ATTACK and _attack_windup_timer > 0.0:
+		return Color(1.0, 0.96, 0.38, 1.0)
 
 	if _state == STATE_ATTACK:
 		if _elite_type == ELITE_VOLTAIC:

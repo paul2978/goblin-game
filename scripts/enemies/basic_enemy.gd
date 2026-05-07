@@ -20,10 +20,13 @@ const VOLTAIC_TINT: Color = Color(0.54, 0.84, 1.0, 1.0)
 const VOLTAIC_ATTACK_FLASH_COLOR: Color = Color(0.90, 0.99, 1.0, 1.0)
 const HIT_FLASH_COLOR: Color = Color(1.0, 1.0, 1.0, 1.0)
 const ATTACK_FLASH_TIME: float = 0.10
+const ATTACK_WINDUP_SECONDS: float = 0.14
+const ATTACK_RECOVERY_SECONDS: float = 0.20
 const HIT_FLASH_TIME: float = 0.10
 const DAMAGE_TINT_TIME: float = 0.14
 const DEATH_FLASH_TIME: float = 0.12
 const HIT_PUNCH_TIME: float = 0.10
+const ATTACK_LEAN_SCALE: Vector2 = Vector2(1.10, 0.92)
 
 # ============================================================================
 # EXPORTED VARIABLES
@@ -68,6 +71,8 @@ var _facing_direction: int = -1
 var _idle_direction: int = -1
 var _idle_turn_timer: float = 0.0
 var _attack_cooldown_timer: float = 0.0
+var _attack_windup_timer: float = 0.0
+var _attack_pending: bool = false
 var _attack_flash_timer: float = 0.0
 var _hit_flash_timer: float = 0.0
 var _damage_tint_timer: float = 0.0
@@ -113,6 +118,7 @@ func _physics_process(delta: float) -> void:
 func _update_timers(delta: float) -> void:
 	_idle_turn_timer = max(_idle_turn_timer - delta, 0.0)
 	_attack_cooldown_timer = max(_attack_cooldown_timer - delta, 0.0)
+	_attack_windup_timer = max(_attack_windup_timer - delta, 0.0)
 	_attack_flash_timer = max(_attack_flash_timer - delta, 0.0)
 	_hit_flash_timer = max(_hit_flash_timer - delta, 0.0)
 	_damage_tint_timer = max(_damage_tint_timer - delta, 0.0)
@@ -130,11 +136,19 @@ func _update_visuals() -> void:
 	var punch_strength: float = 0.0
 	if _hit_punch_timer > 0.0:
 		punch_strength = _hit_punch_timer / HIT_PUNCH_TIME
+	var attack_lean_strength: float = 0.0
+	if _attack_windup_timer > 0.0:
+		attack_lean_strength = clamp(_attack_windup_timer / ATTACK_WINDUP_SECONDS, 0.0, 1.0)
 
 	sprite.scale = _apply_elite_scale(Vector2(
 		1.0 + horizontal_speed_ratio * 0.08 + punch_strength * 0.18,
 		1.0 - horizontal_speed_ratio * 0.05 - punch_strength * 0.10
 	))
+	if _state == STATE_ATTACK and _attack_windup_timer > 0.0:
+		sprite.scale = Vector2(
+			sprite.scale.x * lerp(1.0, ATTACK_LEAN_SCALE.x, attack_lean_strength),
+			sprite.scale.y * lerp(1.0, ATTACK_LEAN_SCALE.y, attack_lean_strength)
+		)
 	sprite.self_modulate = _tint_elite_color(_current_visual_color())
 
 func _current_visual_color() -> Color:
@@ -146,6 +160,9 @@ func _current_visual_color() -> Color:
 
 	if _damage_tint_timer > 0.0:
 		return Color(1.0, 0.74, 0.74, 1.0)
+
+	if _state == STATE_ATTACK and _attack_windup_timer > 0.0:
+		return Color(1.0, 0.98, 0.84, 1.0)
 
 	if _attack_flash_timer > 0.0 or _state == STATE_ATTACK:
 		if _elite_type == ELITE_VOLTAIC:
@@ -260,15 +277,20 @@ func _update_ai_state() -> void:
 
 	var distance_to_player: float = global_position.distance_to(_player.global_position)
 	if distance_to_player <= attack_range:
-		_state = STATE_ATTACK
+		if _attack_cooldown_timer <= 0.0 or _state == STATE_ATTACK:
+			_state = STATE_ATTACK
+		else:
+			_state = STATE_CHASE
 		return
 
 	if distance_to_player <= detection_radius:
 		_state = STATE_CHASE
+		_attack_pending = false
 		return
 
 	if distance_to_player >= lose_radius:
 		_state = STATE_IDLE
+		_attack_pending = false
 
 	_update_idle_direction()
 
@@ -294,6 +316,9 @@ func _desired_direction() -> int:
 		return 1 if _player.global_position.x > global_position.x else -1
 
 	if _state == STATE_ATTACK and _player != null:
+		if _attack_windup_timer > 0.0 or _attack_cooldown_timer > 0.0:
+			return 0
+
 		return 1 if _player.global_position.x > global_position.x else -1
 
 	return _idle_direction
@@ -312,13 +337,25 @@ func _apply_gravity(delta: float) -> void:
 func _apply_horizontal_movement() -> void:
 	var direction: int = _desired_direction()
 	var target_speed: float = 0.0
+	var acceleration: float = 14.0
 
 	if _state == STATE_CHASE:
 		target_speed = direction * chase_speed
 	elif _state == STATE_IDLE:
 		target_speed = direction * move_speed
+	elif _state == STATE_ATTACK:
+		if _attack_windup_timer > 0.0:
+			target_speed = 0.0
+			acceleration = 24.0
+		elif _attack_cooldown_timer > 0.0:
+			target_speed = 0.0
+			acceleration = 20.0
+		else:
+			target_speed = direction * chase_speed
+	else:
+		target_speed = direction * move_speed
 
-	velocity.x = move_toward(velocity.x, target_speed, 14.0)
+	velocity.x = move_toward(velocity.x, target_speed, acceleration)
 
 	if direction != 0:
 		_facing_direction = direction
@@ -373,10 +410,21 @@ func _resolve_contact_damage() -> void:
 	if distance_to_player > attack_range:
 		return
 
+	if not _attack_pending:
+		_attack_pending = true
+		_attack_windup_timer = ATTACK_WINDUP_SECONDS
+		_attack_flash_timer = ATTACK_FLASH_TIME
+		_hit_punch_timer = max(_hit_punch_timer, HIT_PUNCH_TIME * 0.6)
+		return
+
+	if _attack_windup_timer > 0.0:
+		return
+
 	if _player.has_method("apply_contact_damage"):
 		_player.apply_contact_damage(attack_damage, global_position)
 
-	_attack_cooldown_timer = attack_cooldown
+	_attack_cooldown_timer = ATTACK_RECOVERY_SECONDS
+	_attack_pending = false
 	_attack_flash_timer = ATTACK_FLASH_TIME
 	_hit_flash_timer = HIT_FLASH_TIME
 
