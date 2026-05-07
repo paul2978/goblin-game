@@ -12,8 +12,9 @@ const BASIC_ENEMY_SCENE_PATH: String = "res://scenes/enemies/basic_enemy.tscn"
 const ENEMY_DIRECTOR_SCRIPT_PATH: String = "res://scripts/world/enemy_director.gd"
 
 const CENTRAL_ZONE_RECTS: Array[Rect2i] = [
-	Rect2i(40, 18, 16, 2),
-	Rect2i(45, 16, 6, 2)
+	Rect2i(38, 18, 20, 2),
+	Rect2i(44, 16, 8, 2),
+	Rect2i(47, 14, 2, 1)
 ]
 
 const LEFT_ROUTE_RECTS: Array[Rect2i] = [
@@ -60,18 +61,49 @@ const LOWER_ROUTE_RECTS: Array[Rect2i] = [
 const BRIDGE_RECTS: Array[Rect2i] = [
 	Rect2i(36, 17, 4, 1),
 	Rect2i(56, 17, 4, 1),
-	Rect2i(46, 5, 5, 1)
+	Rect2i(46, 5, 5, 1),
+	Rect2i(43, 12, 10, 1)
 ]
 
 const CLIMB_RECTS: Array[Rect2i] = [
 	Rect2i(34, 20, 2, 4),
-	Rect2i(60, 20, 2, 4)
+	Rect2i(60, 20, 2, 4),
+	Rect2i(46, 14, 2, 4)
 ]
 
 const LANDMARK_RECTS: Array[Rect2i] = [
 	Rect2i(14, 16, 2, 4),
 	Rect2i(48, 12, 2, 6),
-	Rect2i(80, 16, 2, 4)
+	Rect2i(80, 16, 2, 4),
+	Rect2i(66, 10, 2, 6)
+]
+
+const MELEE_SPAWN_POINTS: Array[Vector2i] = [
+	Vector2i(10, 20),
+	Vector2i(28, 19),
+	Vector2i(32, 23),
+	Vector2i(66, 20),
+	Vector2i(82, 19),
+	Vector2i(90, 23)
+]
+
+const MIXED_SPAWN_POINTS: Array[Vector2i] = [
+	Vector2i(22, 15),
+	Vector2i(46, 16),
+	Vector2i(52, 16),
+	Vector2i(74, 16)
+]
+
+const RANGED_SPAWN_POINTS: Array[Vector2i] = [
+	Vector2i(34, 11),
+	Vector2i(50, 8),
+	Vector2i(68, 11)
+]
+
+const ARENA_MARKER_POINTS: Array[Vector2i] = [
+	Vector2i(23, 19),
+	Vector2i(48, 16),
+	Vector2i(73, 19)
 ]
 
 const DIRECTOR_SPAWN_POINTS: Array[Vector2i] = [
@@ -113,6 +145,10 @@ const GROUND_COLOR: Color = Color(0.62, 0.64, 0.69, 1.0)
 @onready var enemy_spawns_root: Node2D = $Gameplay/EnemySpawns
 @onready var director_spawns_root: Node2D = $Gameplay/FutureHooks/DirectorSpawns
 @onready var reward_hooks_root: Node2D = $Gameplay/FutureHooks/RewardHooks
+@onready var combat_arenas_root: Node2D = $Gameplay/FutureHooks/CombatArenas
+@onready var melee_spawn_root: Node2D = $Gameplay/FutureHooks/SpawnZones/Melee
+@onready var mixed_spawn_root: Node2D = $Gameplay/FutureHooks/SpawnZones/Mixed
+@onready var ranged_spawn_root: Node2D = $Gameplay/FutureHooks/SpawnZones/Ranged
 @onready var left_limit: Marker2D = $CameraBounds/LeftLimit
 @onready var top_limit: Marker2D = $CameraBounds/TopLimit
 @onready var right_limit: Marker2D = $CameraBounds/RightLimit
@@ -125,6 +161,8 @@ func _ready() -> void:
 	_position_player_spawn()
 	_create_spawn_hooks()
 	_create_reward_hooks()
+	_create_combat_arenas()
+	_create_spawn_zones()
 	_build_level_geometry()
 	_setup_background()
 	_setup_player()
@@ -158,6 +196,29 @@ func _create_reward_hooks() -> void:
 		marker.name = "RewardHook_%02d" % index
 		marker.position = _tile_to_world_center(REWARD_HOOK_POINTS[index])
 		reward_hooks_root.add_child(marker)
+
+func _create_combat_arenas() -> void:
+	_clear_children(combat_arenas_root)
+	for index: int in range(ARENA_MARKER_POINTS.size()):
+		var marker: Marker2D = Marker2D.new()
+		marker.name = "Arena_%02d" % index
+		marker.position = _tile_to_world_center(ARENA_MARKER_POINTS[index])
+		combat_arenas_root.add_child(marker)
+
+func _create_spawn_zones() -> void:
+	_clear_children(melee_spawn_root)
+	_clear_children(mixed_spawn_root)
+	_clear_children(ranged_spawn_root)
+	_create_zone_markers(melee_spawn_root, MELEE_SPAWN_POINTS, "MeleeZone")
+	_create_zone_markers(mixed_spawn_root, MIXED_SPAWN_POINTS, "MixedZone")
+	_create_zone_markers(ranged_spawn_root, RANGED_SPAWN_POINTS, "RangedZone")
+
+func _create_zone_markers(parent: Node2D, points: Array[Vector2i], prefix: String) -> void:
+	for index: int in range(points.size()):
+		var marker: Marker2D = Marker2D.new()
+		marker.name = "%s_%02d" % [prefix, index]
+		marker.position = _tile_to_world_center(points[index])
+		parent.add_child(marker)
 
 func _clear_children(parent: Node) -> void:
 	for child: Node in parent.get_children():
@@ -349,6 +410,20 @@ func _add_foreground_landmarks() -> void:
 			Vector2(3072, 860), Vector2(3072, 960), Vector2(0, 960)
 		]
 	)
+	_add_ruin_shape(
+		foreground_layer,
+		Color(FOREGROUND_RUIN_COLOR.r, FOREGROUND_RUIN_COLOR.g, FOREGROUND_RUIN_COLOR.b, 0.68),
+		[
+			Vector2(260, 960), Vector2(260, 680), Vector2(340, 680), Vector2(340, 960)
+		]
+	)
+	_add_ruin_shape(
+		foreground_layer,
+		Color(FOREGROUND_RUIN_COLOR.r, FOREGROUND_RUIN_COLOR.g, FOREGROUND_RUIN_COLOR.b, 0.68),
+		[
+			Vector2(2740, 960), Vector2(2740, 660), Vector2(2820, 660), Vector2(2820, 960)
+		]
+	)
 
 func _add_ruin_shape(layer: ParallaxLayer, color: Color, points: Array[Vector2]) -> void:
 	var polygon: Polygon2D = Polygon2D.new()
@@ -407,7 +482,7 @@ func _setup_enemy_director() -> void:
 	var director: Node = director_script.new()
 	director.name = "EnemyDirector"
 	add_child(director)
-	director.setup($Gameplay, enemy_spawns_root, enemy_scene)
+	director.setup($Gameplay, enemy_spawns_root, enemy_scene, $Gameplay/FutureHooks/SpawnZones)
 
 # ============================================================================
 # DEBUG

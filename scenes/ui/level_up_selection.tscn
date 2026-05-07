@@ -1,0 +1,64 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/level_up_selection.gd" id="1_level_up_selection"]
+
+[node name="LevelUpSelection" type="CanvasLayer"]
+script = ExtResource("1_level_up_selection")
+
+[node name="Overlay" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.04, 0.05, 0.08, 0.78)
+
+[node name="PanelContainer" type="PanelContainer" parent="Overlay"]
+custom_minimum_size = Vector2(560, 280)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -280.0
+offset_top = -140.0
+offset_right = 280.0
+offset_bottom = 140.0
+
+[node name="MarginContainer" type="MarginContainer" parent="Overlay/PanelContainer"]
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_bottom = 20
+
+[node name="VBoxContainer" type="VBoxContainer" parent="Overlay/PanelContainer/MarginContainer"]
+theme_override_constants/separation = 14
+
+[node name="TitleLabel" type="Label" parent="Overlay/PanelContainer/MarginContainer/VBoxContainer"]
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 24
+text = "LEVEL UP"
+
+[node name="SubtitleLabel" type="Label" parent="Overlay/PanelContainer/MarginContainer/VBoxContainer"]
+horizontal_alignment = 1
+text = "Choose one upgrade"
+
+[node name="Choices" type="HBoxContainer" parent="Overlay/PanelContainer/MarginContainer/VBoxContainer"]
+theme_override_constants/separation = 12
+alignment = 1
+
+[node name="DamageButton" type="Button" parent="Overlay/PanelContainer/MarginContainer/VBoxContainer/Choices"]
+custom_minimum_size = Vector2(160, 140)
+size_flags_horizontal = 3
+text = "Damage Up"
+
+[node name="AttackSpeedButton" type="Button" parent="Overlay/PanelContainer/MarginContainer/VBoxContainer/Choices"]
+custom_minimum_size = Vector2(160, 140)
+size_flags_horizontal = 3
+text = "Attack Speed Up"
+
+[node name="MoveSpeedButton" type="Button" parent="Overlay/PanelContainer/MarginContainer/VBoxContainer/Choices"]
+custom_minimum_size = Vector2(160, 140)
+size_flags_horizontal = 3
+text = "Move Speed Up"

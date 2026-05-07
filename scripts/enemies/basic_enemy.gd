@@ -7,17 +7,29 @@ extends CharacterBody2D
 const STATE_IDLE: StringName = &"idle"
 const STATE_CHASE: StringName = &"chase"
 const STATE_ATTACK: StringName = &"attack"
+const XP_ORB_SCENE_PATH: String = "res://scenes/pickups/xp_orb.tscn"
+const ELITE_BERSERKER: StringName = &"berserker"
+const ELITE_TITAN: StringName = &"titan"
+const ELITE_VOLTAIC: StringName = &"voltaic"
 const IDLE_COLOR: Color = Color(0.46, 0.16, 0.18, 1.0)
 const CHASE_COLOR: Color = Color(0.95, 0.14, 0.16, 1.0)
 const ATTACK_FLASH_COLOR: Color = Color(1.0, 0.92, 0.92, 1.0)
+const BERSERKER_TINT: Color = Color(1.0, 0.54, 0.28, 1.0)
+const TITAN_TINT: Color = Color(0.34, 0.22, 0.20, 1.0)
+const VOLTAIC_TINT: Color = Color(0.54, 0.84, 1.0, 1.0)
+const VOLTAIC_ATTACK_FLASH_COLOR: Color = Color(0.90, 0.99, 1.0, 1.0)
 const HIT_FLASH_COLOR: Color = Color(1.0, 1.0, 1.0, 1.0)
 const ATTACK_FLASH_TIME: float = 0.10
-const HIT_FLASH_TIME: float = 0.08
+const HIT_FLASH_TIME: float = 0.10
+const DAMAGE_TINT_TIME: float = 0.14
+const DEATH_FLASH_TIME: float = 0.12
+const HIT_PUNCH_TIME: float = 0.10
 
 # ============================================================================
 # EXPORTED VARIABLES
 # ============================================================================
 
+@export var max_health: int = 3
 @export var move_speed: float = 85.0
 @export var chase_speed: float = 125.0
 @export var gravity: float = 1100.0
@@ -30,6 +42,13 @@ const HIT_FLASH_TIME: float = 0.08
 @export var idle_turn_interval_min: float = 1.0
 @export var idle_turn_interval_max: float = 2.4
 @export var blocked_jump_chance: float = 0.35
+@export var xp_orb_value: int = 4
+@export var elite_health_bonus: int = 2
+@export var elite_speed_bonus_multiplier: float = 1.18
+@export var elite_attack_speed_bonus_multiplier: float = 0.72
+@export var elite_scale_bonus: float = 1.12
+@export var elite_attack_damage_bonus: int = 2
+@export var elite_voltaic_attack_bonus: int = 1
 
 # ============================================================================
 # NODE REFERENCES
@@ -43,6 +62,7 @@ const HIT_FLASH_TIME: float = 0.08
 # RUNTIME VARIABLES
 # ============================================================================
 
+var _health: int = 0
 var _state: StringName = STATE_IDLE
 var _facing_direction: int = -1
 var _idle_direction: int = -1
@@ -50,6 +70,13 @@ var _idle_turn_timer: float = 0.0
 var _attack_cooldown_timer: float = 0.0
 var _attack_flash_timer: float = 0.0
 var _hit_flash_timer: float = 0.0
+var _damage_tint_timer: float = 0.0
+var _death_flash_timer: float = 0.0
+var _hit_punch_timer: float = 0.0
+var _is_dying: bool = false
+var _is_elite: bool = false
+var _elite_type: StringName = &""
+var _elite_modifiers_applied: bool = false
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _player: Node2D = null
 
@@ -59,12 +86,22 @@ var _player: Node2D = null
 
 func _ready() -> void:
 	add_to_group("enemy")
+	_apply_elite_modifiers()
+	_health = max_health
+	if _is_elite:
+		add_to_group("elite")
 	_rng.randomize()
 	_schedule_next_idle_turn()
 	_update_raycast_direction()
 
 func _physics_process(delta: float) -> void:
 	_update_timers(delta)
+	_update_visuals()
+
+	if _is_dying:
+		_update_death_state()
+		return
+
 	_refresh_player_reference()
 	_update_ai_state()
 	_apply_gravity(delta)
@@ -72,13 +109,15 @@ func _physics_process(delta: float) -> void:
 	_handle_obstacles()
 	move_and_slide()
 	_resolve_contact_damage()
-	_update_visuals()
 
 func _update_timers(delta: float) -> void:
 	_idle_turn_timer = max(_idle_turn_timer - delta, 0.0)
 	_attack_cooldown_timer = max(_attack_cooldown_timer - delta, 0.0)
 	_attack_flash_timer = max(_attack_flash_timer - delta, 0.0)
 	_hit_flash_timer = max(_hit_flash_timer - delta, 0.0)
+	_damage_tint_timer = max(_damage_tint_timer - delta, 0.0)
+	_death_flash_timer = max(_death_flash_timer - delta, 0.0)
+	_hit_punch_timer = max(_hit_punch_timer - delta, 0.0)
 
 # ============================================================================
 # VISUALS
@@ -88,20 +127,120 @@ func _update_visuals() -> void:
 	sprite.flip_h = _facing_direction > 0
 
 	var horizontal_speed_ratio: float = clamp(abs(velocity.x) / max(chase_speed, 1.0), 0.0, 1.0)
-	sprite.scale = Vector2(1.0 + horizontal_speed_ratio * 0.08, 1.0 - horizontal_speed_ratio * 0.05)
-	sprite.self_modulate = _current_visual_color()
+	var punch_strength: float = 0.0
+	if _hit_punch_timer > 0.0:
+		punch_strength = _hit_punch_timer / HIT_PUNCH_TIME
+
+	sprite.scale = _apply_elite_scale(Vector2(
+		1.0 + horizontal_speed_ratio * 0.08 + punch_strength * 0.18,
+		1.0 - horizontal_speed_ratio * 0.05 - punch_strength * 0.10
+	))
+	sprite.self_modulate = _tint_elite_color(_current_visual_color())
 
 func _current_visual_color() -> Color:
+	if _death_flash_timer > 0.0:
+		return HIT_FLASH_COLOR
+
 	if _hit_flash_timer > 0.0:
 		return HIT_FLASH_COLOR
 
+	if _damage_tint_timer > 0.0:
+		return Color(1.0, 0.74, 0.74, 1.0)
+
 	if _attack_flash_timer > 0.0 or _state == STATE_ATTACK:
+		if _elite_type == ELITE_VOLTAIC:
+			return VOLTAIC_ATTACK_FLASH_COLOR
 		return ATTACK_FLASH_COLOR
 
 	if _state == STATE_CHASE:
 		return CHASE_COLOR
 
 	return IDLE_COLOR
+
+# ============================================================================
+# ELITE MODIFIERS
+# ============================================================================
+
+func configure_elite(elite_type: StringName) -> void:
+	if elite_type == &"":
+		return
+
+	_is_elite = true
+	_elite_type = elite_type
+
+	if is_inside_tree() and not _elite_modifiers_applied:
+		_apply_elite_modifiers()
+
+func _apply_elite_modifiers() -> void:
+	if not _is_elite or _elite_modifiers_applied:
+		return
+
+	_elite_modifiers_applied = true
+
+	match _elite_type:
+		ELITE_BERSERKER:
+			max_health += elite_health_bonus
+			move_speed *= elite_speed_bonus_multiplier
+			chase_speed *= 1.24
+			attack_damage += 1
+			attack_cooldown *= elite_attack_speed_bonus_multiplier
+		ELITE_TITAN:
+			max_health += elite_health_bonus
+			move_speed *= 0.82
+			chase_speed *= 0.82
+			attack_damage += 1
+		ELITE_VOLTAIC:
+			max_health += elite_health_bonus
+			attack_damage += elite_voltaic_attack_bonus
+			attack_cooldown *= 0.84
+		_:
+			_is_elite = false
+			_elite_type = &""
+
+# ============================================================================
+# SCALING
+# ============================================================================
+
+func _elite_scale_multiplier() -> Vector2:
+	if not _is_elite:
+		return Vector2.ONE
+
+	match _elite_type:
+		ELITE_TITAN:
+			return Vector2.ONE * elite_scale_bonus
+		ELITE_BERSERKER:
+			return Vector2(1.04, 1.02)
+		ELITE_VOLTAIC:
+			return Vector2(1.02, 1.02)
+		_:
+			return Vector2.ONE
+
+func _apply_elite_scale(base_scale: Vector2) -> Vector2:
+	var elite_scale: Vector2 = _elite_scale_multiplier()
+	return Vector2(base_scale.x * elite_scale.x, base_scale.y * elite_scale.y)
+
+func _elite_tint_color() -> Color:
+	if not _is_elite:
+		return Color.WHITE
+
+	match _elite_type:
+		ELITE_BERSERKER:
+			return BERSERKER_TINT
+		ELITE_TITAN:
+			return TITAN_TINT
+		ELITE_VOLTAIC:
+			return VOLTAIC_TINT
+		_:
+			return Color.WHITE
+
+func _tint_elite_color(base_color: Color) -> Color:
+	var tint_color: Color = _elite_tint_color()
+	return Color(
+		base_color.r * tint_color.r,
+		base_color.g * tint_color.g,
+		base_color.b * tint_color.b,
+		base_color.a * tint_color.a
+	)
 
 # ============================================================================
 # AI
@@ -186,6 +325,9 @@ func _apply_horizontal_movement() -> void:
 		_update_raycast_direction()
 
 func _handle_obstacles() -> void:
+	if _is_dying:
+		return
+
 	if _facing_direction == 0:
 		return
 
@@ -212,23 +354,87 @@ func _update_raycast_direction() -> void:
 # ============================================================================
 
 func _resolve_contact_damage() -> void:
+	if _is_dying:
+		return
+
+	if _state != STATE_ATTACK:
+		return
+
 	if _attack_cooldown_timer > 0.0:
 		return
 
-	for slide_index: int in range(get_slide_collision_count()):
-		var collision: KinematicCollision2D = get_slide_collision(slide_index)
-		var collider: Object = collision.get_collider()
-		if collider == null:
-			continue
-
-		if not collider.is_in_group("player"):
-			continue
-
-		if collider.has_method("apply_contact_damage"):
-			collider.apply_contact_damage(attack_damage, global_position)
-
-		_attack_cooldown_timer = attack_cooldown
-		_attack_flash_timer = ATTACK_FLASH_TIME
-		_hit_flash_timer = HIT_FLASH_TIME
-		_state = STATE_ATTACK
+	if _player == null:
 		return
+
+	if not _player.is_in_group("player"):
+		return
+
+	var distance_to_player: float = global_position.distance_to(_player.global_position)
+	if distance_to_player > attack_range:
+		return
+
+	if _player.has_method("apply_contact_damage"):
+		_player.apply_contact_damage(attack_damage, global_position)
+
+	_attack_cooldown_timer = attack_cooldown
+	_attack_flash_timer = ATTACK_FLASH_TIME
+	_hit_flash_timer = HIT_FLASH_TIME
+
+func take_projectile_hit(damage: int, knockback: Vector2) -> void:
+	if _is_dying:
+		return
+
+	_health = max(_health - damage, 0)
+	velocity.x = knockback.x
+	velocity.y = min(velocity.y, knockback.y * 0.2)
+	_hit_flash_timer = HIT_FLASH_TIME
+	_damage_tint_timer = DAMAGE_TINT_TIME
+	_hit_punch_timer = HIT_PUNCH_TIME
+
+	if _health > 0:
+		return
+
+	_start_death_feedback()
+
+func _start_death_feedback() -> void:
+	_is_dying = true
+	_spawn_xp_orb()
+	_death_flash_timer = DEATH_FLASH_TIME
+	velocity = Vector2.ZERO
+	_collision_enabled(false)
+	wall_ray_cast.enabled = false
+	ledge_ray_cast.enabled = false
+
+func _spawn_xp_orb() -> void:
+	if not FileAccess.file_exists(XP_ORB_SCENE_PATH):
+		return
+
+	var orb_scene: PackedScene = load(XP_ORB_SCENE_PATH)
+	if orb_scene == null:
+		return
+
+	var orb_instance: Node = orb_scene.instantiate()
+	if orb_instance == null:
+		return
+
+	var spawn_parent: Node = get_parent()
+	if spawn_parent == null:
+		spawn_parent = get_tree().current_scene
+
+	spawn_parent.add_child(orb_instance)
+
+	if orb_instance.has_method("setup_orb"):
+		orb_instance.setup_orb(global_position, xp_orb_value)
+
+func _update_death_state() -> void:
+	if _death_flash_timer > 0.0:
+		return
+
+	queue_free()
+
+func _collision_enabled(enabled: bool) -> void:
+	var collision_shape: CollisionShape2D = get_node_or_null("CollisionShape2D") as CollisionShape2D
+	if collision_shape == null:
+		return
+
+	collision_shape.disabled = not enabled

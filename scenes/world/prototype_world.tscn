@@ -58,6 +58,25 @@ position = Vector2(2736, 416)
 
 [node name="RewardHooks" type="Node2D" parent="Gameplay/FutureHooks"]
 
+[node name="CombatArenas" type="Node2D" parent="Gameplay/FutureHooks"]
+
+[node name="Arena_Center" type="Marker2D" parent="Gameplay/FutureHooks/CombatArenas"]
+position = Vector2(1504, 544)
+
+[node name="Arena_Left" type="Marker2D" parent="Gameplay/FutureHooks/CombatArenas"]
+position = Vector2(736, 608)
+
+[node name="Arena_Right" type="Marker2D" parent="Gameplay/FutureHooks/CombatArenas"]
+position = Vector2(2336, 608)
+
+[node name="SpawnZones" type="Node2D" parent="Gameplay/FutureHooks"]
+
+[node name="Melee" type="Node2D" parent="Gameplay/FutureHooks/SpawnZones"]
+
+[node name="Mixed" type="Node2D" parent="Gameplay/FutureHooks/SpawnZones"]
+
+[node name="Ranged" type="Node2D" parent="Gameplay/FutureHooks/SpawnZones"]
+
 [node name="CameraBounds" type="Node2D" parent="."]
 
 [node name="LeftLimit" type="Marker2D" parent="CameraBounds"]

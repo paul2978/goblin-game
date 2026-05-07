@@ -35,6 +35,7 @@ Director:
 lightweight enemy pacing
 simple pressure scaling
 timed spawning
+unique function names per behavior block
 
 Combat:
 

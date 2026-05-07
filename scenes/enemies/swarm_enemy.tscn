@@ -1,0 +1,37 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/enemies/swarm_enemy.gd" id="1_swarm_enemy"]
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_collision"]
+radius = 8.0
+height = 18.0
+
+[sub_resource type="Gradient" id="Gradient_swarm_enemy"]
+offsets = PackedFloat32Array(0, 1)
+colors = PackedColorArray(1, 0.890196, 0.196078, 1, 0.92549, 0.431373, 0.0745098, 1)
+
+[sub_resource type="GradientTexture2D" id="GradientTexture2D_swarm_enemy"]
+gradient = SubResource("Gradient_swarm_enemy")
+width = 18
+height = 24
+
+[node name="SwarmEnemy" type="CharacterBody2D"]
+script = ExtResource("1_swarm_enemy")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, -12)
+shape = SubResource("CapsuleShape2D_collision")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+position = Vector2(0, -12)
+texture = SubResource("GradientTexture2D_swarm_enemy")
+
+[node name="WallRayCast2D" type="RayCast2D" parent="."]
+position = Vector2(0, -12)
+target_position = Vector2(18, 0)
+enabled = true
+
+[node name="LedgeRayCast2D" type="RayCast2D" parent="."]
+position = Vector2(0, -2)
+target_position = Vector2(16, 28)
+enabled = true

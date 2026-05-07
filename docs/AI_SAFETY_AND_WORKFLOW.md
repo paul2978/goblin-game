@@ -108,6 +108,16 @@ var has_collision := not results.is_empty()
 return has_collision
 
 ============================================================================
+FUNCTION SAFETY RULES
+=====================
+
+* NEVER create duplicate function definitions in the same script
+* ALWAYS verify function names are unique before adding helpers
+* Prefer extending existing helper functions before creating near-duplicate variants
+* Remove superseded helper methods immediately after refactors
+* Verify helper signatures remain consistent after iteration passes
+
+============================================================================
 DEBUGGING RULES
 ===============
 
