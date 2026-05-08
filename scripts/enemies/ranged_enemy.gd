@@ -24,6 +24,20 @@ const TITAN_TINT: Color = Color(0.24, 0.18, 0.34, 1.0)
 const VOLTAIC_TINT: Color = Color(0.54, 0.84, 1.0, 1.0)
 const VOLTAIC_ATTACK_COLOR: Color = Color(0.94, 0.99, 1.0, 1.0)
 const HIT_FLASH_COLOR: Color = Color(1.0, 1.0, 1.0, 1.0)
+const PROC_KIND_SHOCK: StringName = &"shock"
+const PROC_KIND_BURN: StringName = &"burn"
+const PROC_KIND_CHAIN: StringName = &"chain"
+const PROC_SHOCK_SECONDS: float = 0.60
+const PROC_BURN_SECONDS: float = 1.00
+const PROC_BURN_TICK_SECONDS: float = 0.34
+const PROC_SHOCK_MOVE_MULTIPLIER: float = 0.84
+const PROC_SHOCK_ATTACK_MULTIPLIER: float = 1.14
+const PROC_BURN_DAMAGE_RATIO: float = 0.42
+const PROC_CHAIN_RADIUS: float = 112.0
+const PROC_CHAIN_DAMAGE_RATIO: float = 0.50
+const PROC_SHOCK_TINT: Color = Color(0.58, 0.92, 1.0, 1.0)
+const PROC_BURN_TINT: Color = Color(1.0, 0.66, 0.30, 1.0)
+const PROC_CHAIN_TINT: Color = Color(0.80, 1.0, 0.90, 1.0)
 const IDLE_TURN_MIN: float = 0.90
 const IDLE_TURN_MAX: float = 2.10
 const ATTACK_WINDUP_SECONDS: float = 0.22
@@ -86,6 +100,11 @@ var _is_dying: bool = false
 var _is_elite: bool = false
 var _elite_type: StringName = &""
 var _elite_modifiers_applied: bool = false
+var _proc_shock_timer: float = 0.0
+var _proc_burn_timer: float = 0.0
+var _proc_burn_tick_timer: float = 0.0
+var _proc_burn_damage: int = 0
+var _proc_feedback_timer: float = 0.0
 var _counterplay_preferred_range_bonus: float = 0.0
 var _counterplay_chase_speed_multiplier: float = 1.0
 var _counterplay_strafe_speed_multiplier: float = 1.0
@@ -113,6 +132,7 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	_update_timers(delta)
+	_update_proc_timers(delta)
 	_update_visuals()
 
 	if _is_dying:
@@ -225,6 +245,23 @@ func _update_timers(delta: float) -> void:
 	_hit_flash_timer = max(_hit_flash_timer - delta, 0.0)
 	_death_flash_timer = max(_death_flash_timer - delta, 0.0)
 
+func _update_proc_timers(delta: float) -> void:
+	_proc_shock_timer = max(_proc_shock_timer - delta, 0.0)
+	_proc_burn_timer = max(_proc_burn_timer - delta, 0.0)
+	_proc_feedback_timer = max(_proc_feedback_timer - delta, 0.0)
+
+	if _proc_burn_timer <= 0.0:
+		_proc_burn_tick_timer = 0.0
+		return
+
+	_proc_burn_tick_timer -= delta
+	if _proc_burn_tick_timer > 0.0:
+		return
+
+	_proc_burn_tick_timer = PROC_BURN_TICK_SECONDS
+	if _proc_burn_damage > 0:
+		take_projectile_hit(_proc_burn_damage, Vector2.ZERO)
+
 func _apply_gravity(delta: float) -> void:
 	if is_on_floor() and velocity.y > 0.0:
 		velocity.y = 0.0
@@ -235,15 +272,16 @@ func _apply_gravity(delta: float) -> void:
 func _apply_movement(delta: float) -> void:
 	var direction: int = _desired_direction()
 	var target_speed: float = 0.0
+	var proc_speed_multiplier: float = _current_proc_speed_multiplier()
 
 	if _state == STATE_IDLE:
-		target_speed = direction * move_speed
+		target_speed = direction * move_speed * proc_speed_multiplier
 	elif _state == STATE_CHASE:
-		target_speed = direction * chase_speed * _counterplay_chase_speed_multiplier
+		target_speed = direction * chase_speed * _counterplay_chase_speed_multiplier * proc_speed_multiplier
 	elif _state == STATE_STRAFE:
-		target_speed = direction * strafe_speed * _counterplay_strafe_speed_multiplier
+		target_speed = direction * strafe_speed * _counterplay_strafe_speed_multiplier * proc_speed_multiplier
 	elif _state == STATE_RETREAT:
-		target_speed = direction * retreat_speed * _counterplay_retreat_speed_multiplier
+		target_speed = direction * retreat_speed * _counterplay_retreat_speed_multiplier * proc_speed_multiplier
 
 	velocity.x = move_toward(velocity.x, target_speed, 14.0)
 
@@ -302,7 +340,7 @@ func _resolve_ranged_attack() -> void:
 		return
 
 	_fire_projectile()
-	_attack_cooldown_timer = attack_cooldown * _counterplay_attack_cooldown_multiplier + ATTACK_RECOVERY_SECONDS
+	_attack_cooldown_timer = attack_cooldown * _counterplay_attack_cooldown_multiplier * _current_proc_attack_cooldown_multiplier() + ATTACK_RECOVERY_SECONDS
 	_attack_primed = false
 	_state = STATE_STRAFE
 
@@ -355,6 +393,64 @@ func _start_death_feedback() -> void:
 	_collision_enabled(false)
 	_wall_ray_cast.enabled = false
 	_ledge_ray_cast.enabled = false
+
+func apply_projectile_proc(proc_kind: StringName, proc_strength: int, source_position: Vector2) -> void:
+	if _is_dying:
+		return
+
+	match proc_kind:
+		PROC_KIND_SHOCK:
+			_proc_shock_timer = max(_proc_shock_timer, PROC_SHOCK_SECONDS + float(max(proc_strength - 1, 0)) * 0.06)
+			_proc_feedback_timer = max(_proc_feedback_timer, 0.14)
+		PROC_KIND_BURN:
+			_proc_burn_timer = max(_proc_burn_timer, PROC_BURN_SECONDS + float(max(proc_strength - 1, 0)) * 0.05)
+			_proc_burn_damage = max(_proc_burn_damage, max(1, int(ceil(float(max(proc_strength, 1)) * PROC_BURN_DAMAGE_RATIO))))
+			_proc_burn_tick_timer = PROC_BURN_TICK_SECONDS * 0.5
+			_proc_feedback_timer = max(_proc_feedback_timer, 0.12)
+		PROC_KIND_CHAIN:
+			_apply_chain_proc(source_position, max(1, int(ceil(float(max(proc_strength, 1)) * PROC_CHAIN_DAMAGE_RATIO))))
+			_proc_feedback_timer = max(_proc_feedback_timer, 0.10)
+		_:
+			pass
+
+func _apply_chain_proc(source_position: Vector2, chain_damage: int) -> void:
+	var nearest_enemy: Node2D = null
+	var nearest_distance: float = PROC_CHAIN_RADIUS
+
+	for enemy_variant: Variant in get_tree().get_nodes_in_group("enemy"):
+		var enemy_node: Node2D = enemy_variant as Node2D
+		if enemy_node == null or enemy_node == self or not is_instance_valid(enemy_node):
+			continue
+
+		if enemy_node.is_in_group("boss"):
+			continue
+
+		var distance_to_enemy: float = enemy_node.global_position.distance_to(source_position)
+		if distance_to_enemy > nearest_distance:
+			continue
+
+		nearest_distance = distance_to_enemy
+		nearest_enemy = enemy_node
+
+	if nearest_enemy == null or not nearest_enemy.has_method("take_projectile_hit"):
+		return
+
+	nearest_enemy.call("take_projectile_hit", chain_damage, Vector2.ZERO)
+
+func _current_proc_speed_multiplier() -> float:
+	if _proc_shock_timer <= 0.0:
+		return 1.0
+
+	return PROC_SHOCK_MOVE_MULTIPLIER
+
+func _current_proc_attack_cooldown_multiplier() -> float:
+	if _proc_shock_timer <= 0.0:
+		return 1.0
+
+	return PROC_SHOCK_ATTACK_MULTIPLIER
+
+func _blend_proc_color(base_color: Color, proc_color: Color, blend_amount: float) -> Color:
+	return base_color.lerp(proc_color, blend_amount)
 
 func _spawn_xp_orb() -> void:
 	if not FileAccess.file_exists(XP_ORB_SCENE_PATH):
@@ -439,6 +535,12 @@ func _current_visual_color() -> Color:
 
 	if _state == STATE_CHASE:
 		return CHASE_COLOR
+
+	if _proc_burn_timer > 0.0:
+		return _blend_proc_color(IDLE_COLOR, PROC_BURN_TINT, 0.20)
+
+	if _proc_shock_timer > 0.0:
+		return _blend_proc_color(IDLE_COLOR, PROC_SHOCK_TINT, 0.18)
 
 	return IDLE_COLOR
 

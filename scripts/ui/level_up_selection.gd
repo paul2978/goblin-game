@@ -19,6 +19,8 @@ signal upgrade_selected(upgrade_id: StringName)
 var _choice_buttons: Array[Button] = []
 var _choice_options: Array = []
 var _build_identity: StringName = &"balanced"
+var _build_archetype: String = "Balanced"
+var _meta_discovery_points: int = 0
 
 # ============================================================================
 # GODOT LIFECYCLE
@@ -35,12 +37,22 @@ func _ready() -> void:
 # UI
 # ============================================================================
 
-func setup_selection(level: int, upgrade_options: Array = [], build_identity: StringName = &"balanced") -> void:
+func setup_selection(level: int, upgrade_options: Array = [], build_identity: StringName = &"balanced", build_archetype: String = "Balanced", meta_discovery_points: int = 0) -> void:
 	_title_label.text = "LEVEL UP"
 	_build_identity = build_identity
+	_build_archetype = build_archetype
+	_meta_discovery_points = meta_discovery_points
 	var subtitle_text: String = "Level %d - Choose one upgrade" % level
 	if _build_identity != &"balanced":
-		subtitle_text += "  [%s]" % String(_build_identity).capitalize()
+		subtitle_text += "  [%s" % String(_build_identity).capitalize()
+		if _build_archetype != "Balanced":
+			subtitle_text += " / %s" % _build_archetype
+		subtitle_text += "]"
+	elif _build_archetype != "Balanced":
+		subtitle_text += "  [%s]" % _build_archetype
+
+	if _meta_discovery_points > 0:
+		subtitle_text += "  [Discoveries %d]" % _meta_discovery_points
 
 	_subtitle_label.text = subtitle_text
 	if upgrade_options.is_empty():
@@ -62,7 +74,10 @@ func setup_selection(level: int, upgrade_options: Array = [], build_identity: St
 		var option: Dictionary = _choice_options[button_index]
 		button.visible = true
 		button.disabled = false
-		button.text = "%s\n%s" % [option["title"], option["description"]]
+		var button_title: String = String(option["title"])
+		if String(option.get("rarity", "common")) == "rare":
+			button_title = "[RARE] %s" % button_title
+		button.text = "%s\n%s" % [button_title, option["description"]]
 		button.set_meta("upgrade_id", option["id"])
 
 func _connect_button(button: Button) -> void:

@@ -79,7 +79,7 @@ director expansion
 pickups
 VFX polish
 audio
-boss encounters
+boss encounter integration
 
 NOT currently planned:
 
@@ -88,3 +88,24 @@ crafting
 quests
 dialogue
 open world systems
+
+Implemented now:
+
+basic enemy pressure
+XP and leveling
+elite enemy support
+director pacing expansion
+boss encounter foundations
+boss encounter integration
+modular world generation foundations
+lightweight proc effects
+upgrade path identity and build archetypes
+enemy counterplay pressure, build adaptation, and landmark weighting
+rare upgrades and run-defining moments
+projectile proc constants renamed to avoid enemy-script member collisions
+projectile proc application indentation fixed for global class parsing
+boss and swarm proc constants renamed to avoid inherited ranged_enemy collisions
+boss and swarm proc tuning constants renamed to keep ranged_enemy parsing stable
+boss proc state renamed to avoid inherited ranged_enemy member collisions
+advanced enemy ecology layering added to director spawn selection
+lightweight unlock progression and replay-driven discovery added to player progression
