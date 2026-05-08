@@ -6,7 +6,7 @@ class_name Projectile
 # ============================================================================
 
 const PROJECTILE_SIZE: Vector2 = Vector2(16.0, 6.0)
-const HIT_CONFIRM_TIME: float = 0.06
+const HIT_CONFIRM_TIME: float = 0.08
 const PROJECTILE_COLOR: Color = Color(1.0, 0.86, 0.32, 1.0)
 const PROJECTILE_CRIT_COLOR: Color = Color(1.0, 0.98, 0.55, 1.0)
 const PROJECTILE_SPLIT_COLOR: Color = Color(0.78, 0.94, 1.0, 1.0)
@@ -14,7 +14,7 @@ const PROJECTILE_SHOCK_COLOR: Color = Color(0.66, 0.98, 1.0, 1.0)
 const PROJECTILE_BURN_COLOR: Color = Color(1.0, 0.62, 0.22, 1.0)
 const PROJECTILE_CHAIN_COLOR: Color = Color(0.76, 0.98, 0.90, 1.0)
 const HIT_CONFIRM_COLOR: Color = Color(1.0, 1.0, 1.0, 1.0)
-const SPAWN_FLASH_TIME: float = 0.08
+const SPAWN_FLASH_TIME: float = 0.10
 const PROJECTILE_PROC_KIND_NONE: StringName = &"none"
 const PROJECTILE_PROC_KIND_SHOCK: StringName = &"shock"
 const PROJECTILE_PROC_KIND_BURN: StringName = &"burn"
@@ -145,7 +145,7 @@ func _update_hit_confirm(delta: float) -> void:
 func _update_visuals() -> void:
 	if _has_hit:
 		_sprite.self_modulate = HIT_CONFIRM_COLOR
-		_sprite.scale = Vector2(1.4, 1.1)
+		_sprite.scale = Vector2(1.45, 1.12)
 		return
 
 	var projectile_color: Color = PROJECTILE_COLOR
@@ -167,8 +167,8 @@ func _update_visuals() -> void:
 
 	if _spawn_flash_timer > 0.0:
 		var flash_strength: float = _spawn_flash_timer / SPAWN_FLASH_TIME
-		projectile_color = projectile_color.lerp(Color.WHITE, flash_strength * 0.45)
-		projectile_scale += Vector2.ONE * flash_strength * 0.08
+		projectile_color = projectile_color.lerp(Color.WHITE, flash_strength * 0.40)
+		projectile_scale += Vector2.ONE * flash_strength * 0.06
 
 	_sprite.self_modulate = projectile_color
 	_sprite.scale = projectile_scale

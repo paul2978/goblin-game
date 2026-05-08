@@ -501,6 +501,7 @@ func _resolve_contact_damage() -> void:
 		_attack_windup_timer = ATTACK_WINDUP_SECONDS
 		_attack_flash_timer = ATTACK_FLASH_TIME
 		_hit_punch_timer = max(_hit_punch_timer, HIT_PUNCH_TIME * 0.6)
+		_play_world_audio_cue("enemy_windup", 0.85)
 		return
 
 	if _attack_windup_timer > 0.0:
@@ -596,6 +597,14 @@ func _current_proc_attack_cooldown_multiplier() -> float:
 		return 1.0
 
 	return PROC_SHOCK_ATTACK_MULTIPLIER
+
+func _play_world_audio_cue(cue_name: String, intensity: float = 1.0) -> void:
+	var current_scene: Node = get_tree().current_scene
+	if current_scene == null or not is_instance_valid(current_scene):
+		return
+
+	if current_scene.has_method("play_world_audio_cue"):
+		current_scene.call("play_world_audio_cue", cue_name, intensity)
 
 func _blend_proc_color(base_color: Color, proc_color: Color, blend_amount: float) -> Color:
 	return base_color.lerp(proc_color, blend_amount)

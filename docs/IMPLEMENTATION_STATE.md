@@ -109,3 +109,13 @@ boss and swarm proc tuning constants renamed to keep ranged_enemy parsing stable
 boss proc state renamed to avoid inherited ranged_enemy member collisions
 advanced enemy ecology layering added to director spawn selection
 lightweight unlock progression and replay-driven discovery added to player progression
+stage 11.2 challenge modifiers and replay variants added to run flow
+stage 11.3 mastery goals and survival milestones added to meta progression
+stage 12.1 combat feel polish and feedback refinement added to player and projectile feedback
+stage 12.2 ui ux readability and information clarity refined in health and upgrade ui
+stage 12.3 audio identity and survival atmosphere added to lightweight procedural cues
+stage 8.5.2 traversal space and platform readability sharpened in handcrafted arena layouts
+stage 8.5.3 macro traversal landscapes and arena scale expanded in handcrafted layouts
+stage 8.6 world structure transformed toward exploration style combat terrain
+stage 8.6.1 terrain flow and navigation smoothness refined in handcrafted terrain layouts
+stage 8.6.1 traversal surfaces widened, transition rects added, and combat flow expanded with terrain rect smoothing

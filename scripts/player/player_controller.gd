@@ -15,6 +15,7 @@ const META_PROGRESS_SECTION: String = "meta_progress"
 const META_DISCOVERY_POINTS_KEY: String = "discovery_points"
 const META_DISCOVERED_IDS_KEY: String = "discovered_ids"
 const META_UNLOCKED_UPGRADE_IDS_KEY: String = "unlocked_upgrade_ids"
+const META_MASTERY_GOAL_IDS_KEY: String = "mastery_goal_ids"
 const DAMAGE_UPGRADE_ID: StringName = &"damage_up"
 const ATTACK_SPEED_UPGRADE_ID: StringName = &"attack_speed_up"
 const MOVE_SPEED_UPGRADE_ID: StringName = &"move_speed_up"
@@ -55,10 +56,17 @@ const LEVEL_UP_FLASH_SECONDS: float = 0.22
 const LEVEL_UP_PULSE_SECONDS: float = 0.24
 const STAGE_REWARD_FLASH_SECONDS: float = 0.20
 const STAGE_REWARD_PULSE_SECONDS: float = 0.22
+const FIRE_PULSE_SECONDS: float = 0.10
+const MOVE_LEAN_MAX_RADIANS: float = 0.06
+const AIR_STRETCH_X: float = 0.04
+const AIR_STRETCH_Y: float = 0.04
 const RARE_UPGRADE_MIN_LEVEL: int = 4
 const RARE_UPGRADE_BASE_CHANCE: float = 0.16
 const RARE_UPGRADE_LEVEL_STEP: float = 0.03
 const RARE_UPGRADE_MAX_CHANCE: float = 0.42
+const MASTERY_SURVIVAL_MILESTONE_SECONDS: Array[int] = [180, 360, 600, 900]
+const MASTERY_NO_DAMAGE_MILESTONE_SECONDS: Array[int] = [30, 60, 120]
+const MASTERY_LEVEL_MILESTONES: Array[int] = [12, 16]
 const CONTACT_KNOCKBACK_X: float = 180.0
 const CONTACT_KNOCKBACK_Y: float = -180.0
 const DEBUG_LABEL_OFFSET: Vector2 = Vector2(12.0, 12.0)
@@ -130,6 +138,7 @@ var _invulnerability_timer: float = 0.0
 var _invulnerability_blink_timer: float = 0.0
 var _fire_cooldown_timer: float = 0.0
 var _facing_direction: float = 1.0
+var _was_on_floor: bool = false
 var _death_flash_timer: float = 0.0
 var _death_restart_timer: float = 0.0
 var _is_dead: bool = false
@@ -140,6 +149,7 @@ var _level_up_flash_timer: float = 0.0
 var _level_up_pulse_timer: float = 0.0
 var _stage_reward_flash_timer: float = 0.0
 var _stage_reward_pulse_timer: float = 0.0
+var _fire_pulse_timer: float = 0.0
 var _pending_level_up_choices: int = 0
 var _projectile_damage_bonus: int = 0
 var _attack_speed_multiplier: float = 1.0
@@ -165,6 +175,9 @@ var _taken_rare_upgrade_ids: Array[StringName] = []
 var _meta_discovery_points: int = 0
 var _meta_discovered_ids: Array[StringName] = []
 var _meta_unlocked_upgrade_ids: Array[StringName] = []
+var _mastery_goal_ids: Array[StringName] = []
+var _run_survival_time: float = 0.0
+var _run_no_damage_time: float = 0.0
 var _upgrade_rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _level_up_selection_ui: CanvasLayer = null
 var _health_canvas_layer: CanvasLayer = null
@@ -179,6 +192,7 @@ func _ready() -> void:
 	_xp_to_next_level = _xp_required_for_level(_current_level)
 	add_to_group("player")
 	_upgrade_rng.randomize()
+	_was_on_floor = is_on_floor()
 	_load_meta_progress()
 	_refresh_meta_unlocks()
 	_ensure_input_map()
@@ -196,6 +210,7 @@ func _physics_process(delta: float) -> void:
 		return
 
 	_update_damage_timers(delta)
+	_update_mastery_timers(delta)
 	_update_jump_timers(delta)
 	_update_proc_timers(delta)
 	_apply_horizontal_movement(delta)
@@ -237,6 +252,7 @@ func _handle_fire_input() -> void:
 		return
 
 	_spawn_projectile()
+	_play_world_audio_cue("player_fire", 1.0)
 	_fire_cooldown_timer = _current_fire_cooldown_duration()
 
 # ============================================================================
@@ -278,6 +294,7 @@ func _try_start_jump() -> void:
 	velocity.y = jump_velocity - _jump_velocity_bonus
 	_jump_buffer_timer = 0.0
 	_coyote_timer = 0.0
+	_play_world_audio_cue("player_jump", 1.0)
 
 func _apply_variable_jump_height() -> void:
 	if not _jump_was_released:
@@ -289,8 +306,14 @@ func _apply_variable_jump_height() -> void:
 	velocity.y *= JUMP_CUT_MULTIPLIER
 
 func _refresh_floor_state() -> void:
-	if is_on_floor():
+	var on_floor_now: bool = is_on_floor()
+	if on_floor_now and not _was_on_floor:
+		_play_world_audio_cue("player_land", 0.9)
+
+	if on_floor_now:
 		_coyote_timer = COYOTE_TIME_SECONDS
+
+	_was_on_floor = on_floor_now
 
 func _spawn_projectile() -> void:
 	var projectile: Projectile = Projectile.new()
@@ -312,6 +335,7 @@ func _spawn_projectile() -> void:
 	projectile.critical = is_critical
 	projectile.crit_multiplier = BASE_PROJECTILE_CRIT_MULTIPLIER
 	spawn_root.add_child(projectile)
+	_fire_pulse_timer = FIRE_PULSE_SECONDS
 
 	if _split_shot_chance > 0.0 and _upgrade_rng.randf() < _split_shot_chance:
 		_spawn_split_projectile(spawn_root, spawn_offset, base_damage)
@@ -331,6 +355,7 @@ func _update_damage_timers(delta: float) -> void:
 	_level_up_pulse_timer = max(_level_up_pulse_timer - delta, 0.0)
 	_stage_reward_flash_timer = max(_stage_reward_flash_timer - delta, 0.0)
 	_stage_reward_pulse_timer = max(_stage_reward_pulse_timer - delta, 0.0)
+	_fire_pulse_timer = max(_fire_pulse_timer - delta, 0.0)
 
 	if _invulnerability_timer <= 0.0:
 		_invulnerability_blink_timer = 0.0
@@ -412,6 +437,12 @@ func get_meta_discovery_points() -> int:
 func get_meta_progress_label() -> String:
 	return "Discovery %d" % _meta_discovery_points
 
+func get_mastery_goal_count() -> int:
+	return _mastery_goal_ids.size()
+
+func get_mastery_progress_label() -> String:
+	return "Mastery %d" % _mastery_goal_ids.size()
+
 func apply_stage_transition_reward(stage_name: String) -> void:
 	if _is_dead:
 		return
@@ -422,6 +453,7 @@ func apply_stage_transition_reward(stage_name: String) -> void:
 
 	_stage_reward_flash_timer = max(_stage_reward_flash_timer, STAGE_REWARD_FLASH_SECONDS)
 	_stage_reward_pulse_timer = max(_stage_reward_pulse_timer, STAGE_REWARD_PULSE_SECONDS)
+	_play_world_audio_cue("stage_reward", 1.0)
 	_record_meta_discovery(StringName("stage_%s" % stage_name))
 
 func _stage_transition_reward_heal_amount(stage_name: String) -> int:
@@ -445,7 +477,9 @@ func apply_boss_victory_reward(stage_name: String, boss_role: StringName) -> voi
 
 	_stage_reward_flash_timer = max(_stage_reward_flash_timer, STAGE_REWARD_FLASH_SECONDS)
 	_stage_reward_pulse_timer = max(_stage_reward_pulse_timer, STAGE_REWARD_PULSE_SECONDS)
+	_play_world_audio_cue("boss_reward", 1.0)
 	_record_meta_discovery(StringName("boss_%s_%s" % [stage_name, String(boss_role)]))
+	_record_mastery_goal(StringName("boss_clear_%s" % String(boss_role)))
 
 func _boss_victory_reward_heal_amount(stage_name: String, boss_role: StringName) -> int:
 	var reward_heal_amount: int = 0
@@ -487,11 +521,15 @@ func _resolve_level_ups() -> void:
 		_level_up_flash_timer = LEVEL_UP_FLASH_SECONDS
 		_level_up_pulse_timer = LEVEL_UP_PULSE_SECONDS
 		_pending_level_up_choices += 1
+		_play_world_audio_cue("level_up", 1.0)
 
-		if _current_level == 4:
-			_record_meta_discovery(&"level_4")
-		elif _current_level == 8:
-			_record_meta_discovery(&"level_8")
+	if _current_level == 4:
+		_record_meta_discovery(&"level_4")
+	elif _current_level == 8:
+		_record_meta_discovery(&"level_8")
+	for mastery_level_milestone: int in MASTERY_LEVEL_MILESTONES:
+		if _current_level == mastery_level_milestone:
+			_record_mastery_goal(StringName("level_%d" % mastery_level_milestone))
 
 	_try_show_level_up_selection()
 
@@ -528,7 +566,7 @@ func _try_show_level_up_selection() -> void:
 		_level_up_selection_ui.connect("upgrade_selected", Callable(self, "_on_upgrade_selected"))
 
 	if _level_up_selection_ui.has_method("setup_selection"):
-		_level_up_selection_ui.call("setup_selection", _current_level, _build_level_up_choices(), _build_identity, get_build_archetype_label(), _meta_discovery_points)
+		_level_up_selection_ui.call("setup_selection", _current_level, _build_level_up_choices(), _build_identity, get_build_archetype_label(), _meta_discovery_points, get_mastery_goal_count())
 
 	get_tree().paused = true
 
@@ -699,6 +737,14 @@ func _current_projectile_pierce() -> int:
 func _current_critical_chance() -> float:
 	return clamp(_critical_chance_bonus, 0.0, 0.35)
 
+func _play_world_audio_cue(cue_name: String, intensity: float = 1.0) -> void:
+	var current_scene: Node = get_tree().current_scene
+	if current_scene == null or not is_instance_valid(current_scene):
+		return
+
+	if current_scene.has_method("play_world_audio_cue"):
+		current_scene.call("play_world_audio_cue", cue_name, intensity)
+
 func _update_proc_timers(delta: float) -> void:
 	_kill_momentum_timer = max(_kill_momentum_timer - delta, 0.0)
 	_kill_momentum_flash_timer = max(_kill_momentum_flash_timer - delta, 0.0)
@@ -861,6 +907,9 @@ func _load_meta_progress() -> void:
 	_meta_discovery_points = 0
 	_meta_discovered_ids.clear()
 	_meta_unlocked_upgrade_ids.clear()
+	_mastery_goal_ids.clear()
+	_run_survival_time = 0.0
+	_run_no_damage_time = 0.0
 
 	if not FileAccess.file_exists(META_PROGRESS_SAVE_PATH):
 		return
@@ -872,12 +921,14 @@ func _load_meta_progress() -> void:
 	_meta_discovery_points = max(int(config.get_value(META_PROGRESS_SECTION, META_DISCOVERY_POINTS_KEY, 0)), 0)
 	_meta_discovered_ids = _string_list_to_string_name_array(config.get_value(META_PROGRESS_SECTION, META_DISCOVERED_IDS_KEY, []))
 	_meta_unlocked_upgrade_ids = _string_list_to_string_name_array(config.get_value(META_PROGRESS_SECTION, META_UNLOCKED_UPGRADE_IDS_KEY, []))
+	_mastery_goal_ids = _string_list_to_string_name_array(config.get_value(META_PROGRESS_SECTION, META_MASTERY_GOAL_IDS_KEY, []))
 
 func _save_meta_progress() -> void:
 	var config: ConfigFile = ConfigFile.new()
 	config.set_value(META_PROGRESS_SECTION, META_DISCOVERY_POINTS_KEY, _meta_discovery_points)
 	config.set_value(META_PROGRESS_SECTION, META_DISCOVERED_IDS_KEY, _string_name_array_to_string_list(_meta_discovered_ids))
 	config.set_value(META_PROGRESS_SECTION, META_UNLOCKED_UPGRADE_IDS_KEY, _string_name_array_to_string_list(_meta_unlocked_upgrade_ids))
+	config.set_value(META_PROGRESS_SECTION, META_MASTERY_GOAL_IDS_KEY, _string_name_array_to_string_list(_mastery_goal_ids))
 	config.save(META_PROGRESS_SAVE_PATH)
 
 func _record_meta_discovery(discovery_id: StringName) -> void:
@@ -891,6 +942,33 @@ func _record_meta_discovery(discovery_id: StringName) -> void:
 	_meta_discovery_points += 1
 	_refresh_meta_unlocks()
 	_save_meta_progress()
+
+func _record_mastery_goal(goal_id: StringName) -> void:
+	if goal_id == StringName():
+		return
+
+	if _mastery_goal_ids.has(goal_id):
+		return
+
+	_mastery_goal_ids.append(goal_id)
+	_meta_discovery_points += 1
+	_refresh_meta_unlocks()
+	_save_meta_progress()
+
+func _update_mastery_timers(delta: float) -> void:
+	if _is_dead:
+		return
+
+	_run_survival_time += delta
+	_run_no_damage_time += delta
+
+	for milestone_seconds: int in MASTERY_SURVIVAL_MILESTONE_SECONDS:
+		if _run_survival_time >= float(milestone_seconds):
+			_record_mastery_goal(StringName("survival_%dm" % int(milestone_seconds / 60)))
+
+	for milestone_seconds: int in MASTERY_NO_DAMAGE_MILESTONE_SECONDS:
+		if _run_no_damage_time >= float(milestone_seconds):
+			_record_mastery_goal(StringName("flawless_%ds" % milestone_seconds))
 
 func _refresh_meta_unlocks() -> void:
 	_unlock_meta_upgrade_if_ready(PROJECTILE_PIERCE_UPGRADE_ID, _meta_discovery_points >= 1)
@@ -1127,6 +1205,8 @@ func apply_contact_damage(amount: int, source_position: Vector2) -> void:
 
 	_health = max(_health - amount, 0)
 	_hurt_flash_timer = DAMAGE_FLASH_SECONDS
+	_run_no_damage_time = 0.0
+	_play_world_audio_cue("player_hurt", 1.0)
 
 	var knockback_direction: float = sign(global_position.x - source_position.x)
 	if is_zero_approx(knockback_direction):
@@ -1175,12 +1255,26 @@ func _update_death_state(delta: float) -> void:
 
 func _update_player_visuals() -> void:
 	var sprite_scale: Vector2 = Vector2.ONE
+	var horizontal_speed_ratio: float = clamp(abs(velocity.x) / max(sprint_speed + _move_speed_bonus, 1.0), 0.0, 1.0)
 	if _level_up_pulse_timer > 0.0:
 		var pulse_strength: float = _level_up_pulse_timer / LEVEL_UP_PULSE_SECONDS
 		sprite_scale += Vector2.ONE * pulse_strength * 0.12
 	if _stage_reward_pulse_timer > 0.0:
 		var stage_reward_pulse_strength: float = _stage_reward_pulse_timer / STAGE_REWARD_PULSE_SECONDS
 		sprite_scale += Vector2.ONE * stage_reward_pulse_strength * 0.08
+	if horizontal_speed_ratio > 0.0 and is_on_floor():
+		sprite_scale.x += horizontal_speed_ratio * 0.05
+		sprite_scale.y -= horizontal_speed_ratio * 0.02
+		_sprite.rotation = lerp(_sprite.rotation, -_facing_direction * horizontal_speed_ratio * MOVE_LEAN_MAX_RADIANS, 0.22)
+	else:
+		_sprite.rotation = lerp(_sprite.rotation, 0.0, 0.18)
+	if not is_on_floor():
+		sprite_scale.x += AIR_STRETCH_X
+		sprite_scale.y += AIR_STRETCH_Y
+	if _fire_pulse_timer > 0.0:
+		var fire_pulse_strength: float = _fire_pulse_timer / FIRE_PULSE_SECONDS
+		sprite_scale.x += fire_pulse_strength * 0.06
+		sprite_scale.y -= fire_pulse_strength * 0.03
 	if _kill_momentum_flash_timer > 0.0:
 		sprite_scale += Vector2.ONE * 0.08
 
@@ -1252,7 +1346,7 @@ func _update_debug_health_display() -> void:
 	]
 	health_text += "\nBD: %s" % String(_build_identity).capitalize()
 	health_text += " / %s" % get_build_archetype_label()
-	health_text += "\nMETA: %d" % _meta_discovery_points
+	health_text += "\nMETA: %d | MST: %d" % [_meta_discovery_points, get_mastery_goal_count()]
 	if _is_dead:
 		health_text += "\n[DEAD]"
 	elif _pending_level_up_choices > 0:

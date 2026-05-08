@@ -221,6 +221,7 @@ func _update_ai_state() -> void:
 			_attack_primed = true
 			_attack_windup_timer = boss_charge_windup_seconds
 			_boss_charge_has_hit = false
+			_play_world_audio_cue("boss_windup", 0.95)
 		_sync_facing_to_player()
 		return
 
@@ -238,6 +239,7 @@ func _update_swarm_ai_state(distance_to_player: float) -> void:
 			_attack_primed = true
 			_attack_windup_timer = boss_swarm_windup_seconds
 			_boss_charge_has_hit = false
+			_play_world_audio_cue("boss_windup", 0.92)
 		_sync_facing_to_player()
 		return
 
@@ -262,6 +264,7 @@ func _update_control_ai_state(distance_to_player: float) -> void:
 			_attack_primed = true
 			_attack_windup_timer = boss_charge_windup_seconds * 0.92
 			_boss_charge_has_hit = false
+			_play_world_audio_cue("boss_windup", 0.98)
 		_sync_facing_to_player()
 		return
 
@@ -350,6 +353,7 @@ func _update_boss_phase() -> void:
 	if _boss_phase != previous_phase:
 		_boss_phase_flash_timer = 0.28
 		_boss_phase_transition_timer = 0.40
+		_play_world_audio_cue("boss_phase", 1.0 + float(_boss_phase - 1) * 0.15)
 
 func _sync_facing_to_player() -> void:
 	if _player == null:
@@ -846,3 +850,11 @@ func _load_swarm_enemy_scene() -> PackedScene:
 		return null
 
 	return load("res://scenes/enemies/swarm_enemy.tscn")
+
+func _play_world_audio_cue(cue_name: String, intensity: float = 1.0) -> void:
+	var current_scene: Node = get_tree().current_scene
+	if current_scene == null or not is_instance_valid(current_scene):
+		return
+
+	if current_scene.has_method("play_world_audio_cue"):
+		current_scene.call("play_world_audio_cue", cue_name, intensity)

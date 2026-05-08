@@ -5,73 +5,158 @@ extends Node2D
 # ============================================================================
 
 const TILE_SIZE: int = 32
-const WORLD_WIDTH_TILES: int = 96
-const WORLD_HEIGHT_TILES: int = 30
+const WORLD_WIDTH_TILES: int = 112
+const WORLD_HEIGHT_TILES: int = 34
 const PLAYER_SCENE_PATH: String = "res://scenes/player/Player.tscn"
 const BASIC_ENEMY_SCENE_PATH: String = "res://scenes/enemies/basic_enemy.tscn"
 const ENEMY_DIRECTOR_SCRIPT_PATH: String = "res://scripts/world/enemy_director.gd"
 const META_PROGRESS_SAVE_PATH: String = "user://goblin_game_meta_progress.cfg"
 const META_PROGRESS_SECTION: String = "meta_progress"
 const META_DISCOVERY_POINTS_KEY: String = "discovery_points"
+const CHALLENGE_VARIANT_BALANCED: String = "balanced"
+const CHALLENGE_VARIANT_SURGE: String = "surge"
+const CHALLENGE_VARIANT_ENDURANCE: String = "endurance"
+const CHALLENGE_VARIANT_TRAVERSAL: String = "traversal"
+const CHALLENGE_VARIANT_ECOLOGY: String = "ecology"
+const AUDIO_MIX_RATE: float = 22050.0
+const AUDIO_BUFFER_LENGTH: float = 0.24
+const AUDIO_ATMOSPHERE_VOLUME_DB: float = -28.0
+const AUDIO_COMBAT_VOLUME_DB: float = -16.0
+const AUDIO_MOVEMENT_VOLUME_DB: float = -18.0
+const AUDIO_STATUS_VOLUME_DB: float = -15.0
+const AUDIO_REWARD_VOLUME_DB: float = -14.5
 
 const CENTRAL_ZONE_RECTS: Array[Rect2i] = [
 	Rect2i(38, 18, 20, 2),
 	Rect2i(44, 16, 8, 2),
-	Rect2i(47, 14, 2, 1)
+	Rect2i(30, 17, 4, 2),
+	Rect2i(47, 14, 2, 1),
+	Rect2i(62, 17, 4, 2)
 ]
 
 const LEFT_ROUTE_RECTS: Array[Rect2i] = [
-	Rect2i(24, 19, 12, 2),
-	Rect2i(8, 20, 12, 2),
-	Rect2i(0, 23, 8, 3),
-	Rect2i(12, 17, 5, 1),
-	Rect2i(18, 15, 4, 1),
-	Rect2i(22, 13, 4, 1),
-	Rect2i(27, 11, 4, 1),
-	Rect2i(4, 9, 5, 1),
-	Rect2i(0, 6, 4, 1)
+	Rect2i(22, 20, 18, 3),
+	Rect2i(6, 21, 18, 3),
+	Rect2i(0, 23, 12, 4),
+	Rect2i(10, 17, 10, 2),
+	Rect2i(18, 15, 10, 2),
+	Rect2i(26, 13, 8, 2),
+	Rect2i(34, 11, 8, 2),
+	Rect2i(2, 9, 8, 2),
+	Rect2i(0, 6, 8, 2)
 ]
 
 const RIGHT_ROUTE_RECTS: Array[Rect2i] = [
-	Rect2i(60, 19, 12, 2),
-	Rect2i(76, 20, 12, 2),
-	Rect2i(88, 23, 8, 3),
-	Rect2i(79, 17, 5, 1),
-	Rect2i(74, 15, 4, 1),
-	Rect2i(70, 13, 4, 1),
-	Rect2i(65, 11, 4, 1),
-	Rect2i(84, 8, 6, 1),
-	Rect2i(92, 6, 4, 1)
+	Rect2i(58, 20, 18, 3),
+	Rect2i(74, 21, 18, 3),
+	Rect2i(88, 23, 14, 4),
+	Rect2i(80, 17, 8, 2),
+	Rect2i(72, 15, 8, 2),
+	Rect2i(64, 13, 8, 2),
+	Rect2i(70, 11, 8, 2),
+	Rect2i(82, 8, 10, 2),
+	Rect2i(94, 6, 8, 2)
 ]
 
 const UPPER_ROUTE_RECTS: Array[Rect2i] = [
-	Rect2i(32, 13, 7, 1),
-	Rect2i(42, 11, 7, 1),
-	Rect2i(50, 8, 5, 1),
-	Rect2i(57, 11, 7, 1),
-	Rect2i(66, 13, 7, 1),
-	Rect2i(45, 7, 3, 1)
+	Rect2i(26, 13, 14, 2),
+	Rect2i(40, 11, 10, 2),
+	Rect2i(50, 9, 10, 2),
+	Rect2i(60, 8, 10, 2),
+	Rect2i(70, 9, 10, 2),
+	Rect2i(80, 11, 10, 2),
+	Rect2i(90, 12, 10, 2),
+	Rect2i(48, 6, 6, 2)
 ]
 
 const LOWER_ROUTE_RECTS: Array[Rect2i] = [
-	Rect2i(18, 24, 18, 2),
-	Rect2i(36, 25, 8, 2),
-	Rect2i(52, 24, 18, 2),
-	Rect2i(30, 22, 4, 1),
-	Rect2i(60, 22, 4, 1)
+	Rect2i(16, 25, 24, 2),
+	Rect2i(44, 26, 16, 2),
+	Rect2i(64, 25, 24, 2),
+	Rect2i(88, 24, 16, 2),
+	Rect2i(28, 22, 6, 1),
+	Rect2i(56, 22, 6, 1),
+	Rect2i(84, 22, 6, 1)
 ]
 
 const BRIDGE_RECTS: Array[Rect2i] = [
-	Rect2i(36, 17, 4, 1),
-	Rect2i(56, 17, 4, 1),
-	Rect2i(46, 5, 5, 1),
-	Rect2i(43, 12, 10, 1)
+	Rect2i(32, 17, 12, 2),
+	Rect2i(50, 17, 12, 2),
+	Rect2i(42, 14, 14, 2),
+	Rect2i(46, 8, 10, 2)
+]
+
+const TRANSITION_RECTS: Array[Rect2i] = [
+	Rect2i(20, 18, 4, 2),
+	Rect2i(28, 16, 4, 2),
+	Rect2i(36, 14, 4, 2),
+	Rect2i(56, 18, 4, 2),
+	Rect2i(64, 16, 4, 2),
+	Rect2i(72, 14, 4, 2),
+	Rect2i(44, 18, 6, 2),
+	Rect2i(48, 12, 6, 2)
 ]
 
 const CLIMB_RECTS: Array[Rect2i] = [
-	Rect2i(34, 20, 2, 4),
-	Rect2i(60, 20, 2, 4),
-	Rect2i(46, 14, 2, 4)
+	Rect2i(34, 20, 3, 4),
+	Rect2i(34, 17, 3, 3),
+	Rect2i(62, 20, 3, 4),
+	Rect2i(62, 17, 3, 3),
+	Rect2i(48, 14, 4, 4)
+]
+
+const FAR_LEFT_RECTS: Array[Rect2i] = [
+	Rect2i(0, 19, 10, 2),
+	Rect2i(0, 16, 8, 1),
+	Rect2i(6, 14, 6, 1)
+]
+
+const FAR_RIGHT_RECTS: Array[Rect2i] = [
+	Rect2i(102, 19, 10, 2),
+	Rect2i(98, 16, 8, 1),
+	Rect2i(94, 14, 6, 1)
+]
+
+const HIGH_RIDGE_RECTS: Array[Rect2i] = [
+	Rect2i(22, 11, 16, 2),
+	Rect2i(40, 9, 16, 2),
+	Rect2i(58, 8, 16, 2),
+	Rect2i(76, 7, 14, 2),
+	Rect2i(92, 6, 12, 2)
+]
+
+const LOW_BASIN_RECTS: Array[Rect2i] = [
+	Rect2i(12, 27, 22, 3),
+	Rect2i(36, 28, 18, 3),
+	Rect2i(56, 27, 22, 3),
+	Rect2i(80, 26, 20, 3)
+]
+
+const LEFT_ASCENT_ROUTE_POINTS: Array[Vector2i] = [
+	Vector2i(12, 18),
+	Vector2i(18, 15),
+	Vector2i(24, 13),
+	Vector2i(30, 11),
+	Vector2i(38, 11),
+	Vector2i(45, 7)
+]
+
+const RIGHT_ASCENT_ROUTE_POINTS: Array[Vector2i] = [
+	Vector2i(52, 16),
+	Vector2i(60, 17),
+	Vector2i(68, 15),
+	Vector2i(76, 13),
+	Vector2i(84, 8),
+	Vector2i(92, 6)
+]
+
+const HIGHLINE_VERTICAL_ROUTE_POINTS: Array[Vector2i] = [
+	Vector2i(22, 15),
+	Vector2i(32, 13),
+	Vector2i(42, 11),
+	Vector2i(50, 8),
+	Vector2i(57, 11),
+	Vector2i(66, 13)
 ]
 
 const LANDMARK_RECTS: Array[Rect2i] = [
@@ -87,26 +172,30 @@ const MELEE_SPAWN_POINTS: Array[Vector2i] = [
 	Vector2i(32, 23),
 	Vector2i(66, 20),
 	Vector2i(82, 19),
-	Vector2i(90, 23)
+	Vector2i(90, 23),
+	Vector2i(104, 23)
 ]
 
 const MIXED_SPAWN_POINTS: Array[Vector2i] = [
 	Vector2i(22, 15),
 	Vector2i(46, 16),
 	Vector2i(52, 16),
-	Vector2i(74, 16)
+	Vector2i(74, 16),
+	Vector2i(92, 18)
 ]
 
 const RANGED_SPAWN_POINTS: Array[Vector2i] = [
 	Vector2i(34, 11),
 	Vector2i(50, 8),
-	Vector2i(68, 11)
+	Vector2i(68, 11),
+	Vector2i(100, 8)
 ]
 
 const ARENA_MARKER_POINTS: Array[Vector2i] = [
 	Vector2i(23, 19),
 	Vector2i(48, 16),
-	Vector2i(73, 19)
+	Vector2i(73, 19),
+	Vector2i(96, 18)
 ]
 
 const SAFE_ROUTE_POINTS: Array[Vector2i] = [
@@ -117,7 +206,9 @@ const SAFE_ROUTE_POINTS: Array[Vector2i] = [
 	Vector2i(45, 7),
 	Vector2i(57, 11),
 	Vector2i(66, 13),
-	Vector2i(74, 16)
+	Vector2i(74, 16),
+	Vector2i(90, 18),
+	Vector2i(104, 20)
 ]
 
 const RISK_ROUTE_POINTS: Array[Vector2i] = [
@@ -127,7 +218,9 @@ const RISK_ROUTE_POINTS: Array[Vector2i] = [
 	Vector2i(48, 16),
 	Vector2i(60, 17),
 	Vector2i(76, 20),
-	Vector2i(90, 23)
+	Vector2i(90, 23),
+	Vector2i(100, 22),
+	Vector2i(108, 21)
 ]
 
 const RECOVERY_ROUTE_POINTS: Array[Vector2i] = [
@@ -136,7 +229,9 @@ const RECOVERY_ROUTE_POINTS: Array[Vector2i] = [
 	Vector2i(36, 25),
 	Vector2i(52, 24),
 	Vector2i(70, 22),
-	Vector2i(88, 23)
+	Vector2i(88, 23),
+	Vector2i(100, 24),
+	Vector2i(108, 24)
 ]
 
 const LEFT_FORK_ROUTE_POINTS: Array[Vector2i] = [
@@ -168,19 +263,59 @@ const HIGHLINE_ROUTE_POINTS: Array[Vector2i] = [
 	Vector2i(74, 16)
 ]
 
+const FAR_LEFT_ROUTE_POINTS: Array[Vector2i] = [
+	Vector2i(0, 23),
+	Vector2i(8, 21),
+	Vector2i(16, 18),
+	Vector2i(24, 15),
+	Vector2i(32, 13),
+	Vector2i(45, 7)
+]
+
+const FAR_RIGHT_ROUTE_POINTS: Array[Vector2i] = [
+	Vector2i(57, 17),
+	Vector2i(68, 17),
+	Vector2i(80, 18),
+	Vector2i(92, 21),
+	Vector2i(104, 23),
+	Vector2i(110, 22)
+]
+
+const HIGH_RIDGE_ROUTE_POINTS: Array[Vector2i] = [
+	Vector2i(24, 11),
+	Vector2i(36, 10),
+	Vector2i(48, 8),
+	Vector2i(60, 7),
+	Vector2i(72, 6),
+	Vector2i(86, 6),
+	Vector2i(100, 5)
+]
+
+const LOW_BASIN_ROUTE_POINTS: Array[Vector2i] = [
+	Vector2i(12, 26),
+	Vector2i(28, 27),
+	Vector2i(44, 28),
+	Vector2i(60, 27),
+	Vector2i(76, 26),
+	Vector2i(92, 25),
+	Vector2i(108, 24)
+]
+
 const DIRECTOR_SPAWN_POINTS: Array[Vector2i] = [
 	Vector2i(12, 18),
 	Vector2i(30, 17),
 	Vector2i(48, 15),
 	Vector2i(66, 17),
 	Vector2i(84, 18),
-	Vector2i(52, 22)
+	Vector2i(52, 22),
+	Vector2i(100, 20)
 ]
 
 const REWARD_HOOK_POINTS: Array[Vector2i] = [
 	Vector2i(2, 5),
 	Vector2i(94, 5),
-	Vector2i(47, 4)
+	Vector2i(47, 4),
+	Vector2i(108, 6)
 ]
 
 const SKY_COLOR_TOP: Color = Color(0.09, 0.10, 0.18, 1.0)
@@ -273,7 +408,14 @@ var _world_chunk_layout_index: int = WORLD_CHUNK_LAYOUT_CROSSROADS
 var _world_chunk_layout_name: String = "crossroads"
 var _world_chunk_pool_name: String = WORLD_BIOME_POOL_EARLY
 var _world_encounter_profile_name: String = WORLD_ENCOUNTER_PROFILE_OPEN
+var _current_challenge_variant_name: String = CHALLENGE_VARIANT_BALANCED
 var _meta_discovery_points: int = 0
+var _audio_atmosphere_player: AudioStreamPlayer = null
+var _audio_combat_player: AudioStreamPlayer = null
+var _audio_movement_player: AudioStreamPlayer = null
+var _audio_status_player: AudioStreamPlayer = null
+var _audio_atmosphere_phase: float = 0.0
+var _audio_atmosphere_pulse_phase: float = 0.0
 var _world_chunk_plan: Array[Dictionary] = []
 var _world_chunk_sequence: Array[String] = []
 var _world_chunk_category_sequence: Array[String] = []
@@ -281,6 +423,7 @@ var _world_chunk_ecology_counts: Dictionary = {}
 
 func _ready() -> void:
 	_load_meta_progress()
+	_select_challenge_variant()
 	_setup_tile_map()
 	_clear_tile_map()
 	_update_world_bounds()
@@ -294,6 +437,12 @@ func _ready() -> void:
 	_setup_player()
 	_setup_enemy_director()
 	_apply_biome_theme(_current_biome_stage)
+	_setup_audio_feedback()
+
+func _process(delta: float) -> void:
+	_update_survival_audio(delta)
+	_sync_biome_theme()
+	_sync_arena_pressure()
 
 func _load_meta_progress() -> void:
 	_meta_discovery_points = 0
@@ -307,9 +456,44 @@ func _load_meta_progress() -> void:
 
 	_meta_discovery_points = max(int(config.get_value(META_PROGRESS_SECTION, META_DISCOVERY_POINTS_KEY, 0)), 0)
 
-func _process(_delta: float) -> void:
-	_sync_biome_theme()
-	_sync_arena_pressure()
+func _select_challenge_variant() -> void:
+	var available_variants: Array[String] = [CHALLENGE_VARIANT_BALANCED]
+
+	if _meta_discovery_points >= 1:
+		available_variants.append(CHALLENGE_VARIANT_ENDURANCE)
+	if _meta_discovery_points >= 2:
+		available_variants.append(CHALLENGE_VARIANT_TRAVERSAL)
+	if _meta_discovery_points >= 3:
+		available_variants.append(CHALLENGE_VARIANT_ECOLOGY)
+	if _meta_discovery_points >= 4:
+		available_variants.append(CHALLENGE_VARIANT_SURGE)
+
+	var variant_rng: RandomNumberGenerator = RandomNumberGenerator.new()
+	variant_rng.seed = int(Time.get_ticks_usec()) ^ int(get_instance_id()) ^ (_meta_discovery_points * 31)
+
+	match _current_biome_stage:
+		"mid":
+			_current_challenge_variant_name = _weighted_challenge_variant_choice(available_variants, variant_rng, [CHALLENGE_VARIANT_TRAVERSAL, CHALLENGE_VARIANT_ECOLOGY, CHALLENGE_VARIANT_ENDURANCE])
+		"late":
+			_current_challenge_variant_name = _weighted_challenge_variant_choice(available_variants, variant_rng, [CHALLENGE_VARIANT_SURGE, CHALLENGE_VARIANT_ECOLOGY, CHALLENGE_VARIANT_TRAVERSAL])
+		"endless":
+			_current_challenge_variant_name = _weighted_challenge_variant_choice(available_variants, variant_rng, [CHALLENGE_VARIANT_SURGE, CHALLENGE_VARIANT_ECOLOGY, CHALLENGE_VARIANT_ENDURANCE])
+		_:
+			_current_challenge_variant_name = _weighted_challenge_variant_choice(available_variants, variant_rng, [CHALLENGE_VARIANT_BALANCED, CHALLENGE_VARIANT_ENDURANCE, CHALLENGE_VARIANT_TRAVERSAL])
+
+func _weighted_challenge_variant_choice(available_variants: Array[String], variant_rng: RandomNumberGenerator, preferred_variants: Array[String]) -> String:
+	if available_variants.is_empty():
+		return CHALLENGE_VARIANT_BALANCED
+
+	var weighted_variants: Array[String] = []
+	for variant_name: String in available_variants:
+		var weight: int = 1
+		if preferred_variants.has(variant_name):
+			weight += 2
+		for weight_index: int in range(weight):
+			weighted_variants.append(variant_name)
+
+	return weighted_variants[variant_rng.randi_range(0, weighted_variants.size() - 1)]
 
 func _setup_tile_map() -> void:
 	ground_tile_map.tile_set = _create_ground_tile_set()
@@ -318,11 +502,13 @@ func _clear_tile_map() -> void:
 	ground_tile_map.clear()
 
 func _update_world_bounds() -> void:
+	left_limit.position.x = 0.0
+	top_limit.position.y = 0.0
 	right_limit.position.x = WORLD_WIDTH_TILES * TILE_SIZE
 	bottom_limit.position.y = WORLD_HEIGHT_TILES * TILE_SIZE
 
 func _position_player_spawn() -> void:
-	player_spawn.position = Vector2(44 * TILE_SIZE + TILE_SIZE * 0.5, 17 * TILE_SIZE)
+	player_spawn.position = Vector2(52 * TILE_SIZE + TILE_SIZE * 0.5, 17 * TILE_SIZE)
 
 func _create_spawn_hooks() -> void:
 	_clear_children(director_spawns_root)
@@ -373,6 +559,7 @@ func _clear_children(parent: Node) -> void:
 func _build_level_geometry() -> void:
 	_clear_children(collision_root)
 	var level_rects: Array[Rect2i] = _all_level_rects()
+	level_rects = _expand_combat_flow_rects(level_rects)
 	_paint_level_rects(level_rects)
 	_create_level_colliders(level_rects)
 
@@ -413,54 +600,54 @@ func _tile_points_to_world(points: Array[Vector2i]) -> PackedVector2Array:
 func _create_arena_pressure_layers() -> void:
 	_clear_children(arena_pressure_root)
 	var compression_points: Array[Vector2] = [
-		Vector2(736, 384), Vector2(2336, 384), Vector2(2336, 704), Vector2(736, 704)
+		Vector2(832, 448), Vector2(2752, 448), Vector2(2752, 768), Vector2(832, 768)
 	]
 	var risk_points: Array[Vector2] = [
-		Vector2(0, 288), Vector2(3072, 288), Vector2(3072, 576), Vector2(0, 576)
+		Vector2(0, 320), Vector2(3584, 320), Vector2(3584, 640), Vector2(0, 640)
 	]
 	var recovery_points: Array[Vector2] = [
-		Vector2(0, 640), Vector2(3072, 640), Vector2(3072, 864), Vector2(0, 864)
+		Vector2(0, 736), Vector2(3584, 736), Vector2(3584, 1024), Vector2(0, 1024)
 	]
 	match _world_chunk_layout_index:
 		WORLD_CHUNK_LAYOUT_LEFT_FORK:
 			compression_points = [
-				Vector2(512, 384), Vector2(2176, 384), Vector2(2176, 704), Vector2(512, 704)
+				Vector2(640, 448), Vector2(2432, 448), Vector2(2432, 768), Vector2(640, 768)
 			]
 			risk_points = [
-				Vector2(0, 288), Vector2(2816, 288), Vector2(2816, 576), Vector2(0, 576)
+				Vector2(0, 320), Vector2(3264, 320), Vector2(3264, 640), Vector2(0, 640)
 			]
 			recovery_points = [
-				Vector2(0, 640), Vector2(2560, 640), Vector2(2560, 864), Vector2(0, 864)
+				Vector2(0, 736), Vector2(2752, 736), Vector2(2752, 1024), Vector2(0, 1024)
 			]
 		WORLD_CHUNK_LAYOUT_RIGHT_FORK:
 			compression_points = [
-				Vector2(896, 384), Vector2(2560, 384), Vector2(2560, 704), Vector2(896, 704)
+				Vector2(960, 448), Vector2(2816, 448), Vector2(2816, 768), Vector2(960, 768)
 			]
 			risk_points = [
-				Vector2(256, 288), Vector2(3072, 288), Vector2(3072, 576), Vector2(256, 576)
+				Vector2(256, 320), Vector2(3584, 320), Vector2(3584, 640), Vector2(256, 640)
 			]
 			recovery_points = [
-				Vector2(512, 640), Vector2(3072, 640), Vector2(3072, 864), Vector2(512, 864)
+				Vector2(512, 736), Vector2(3584, 736), Vector2(3584, 1024), Vector2(512, 1024)
 			]
 		WORLD_CHUNK_LAYOUT_HIGHLINE:
 			compression_points = [
-				Vector2(704, 320), Vector2(2368, 320), Vector2(2368, 608), Vector2(704, 608)
+				Vector2(736, 384), Vector2(2816, 384), Vector2(2816, 704), Vector2(736, 704)
 			]
 			risk_points = [
-				Vector2(0, 256), Vector2(3072, 256), Vector2(3072, 544), Vector2(0, 544)
+				Vector2(0, 288), Vector2(3584, 288), Vector2(3584, 608), Vector2(0, 608)
 			]
 			recovery_points = [
-				Vector2(0, 672), Vector2(3072, 672), Vector2(3072, 896), Vector2(0, 896)
+				Vector2(0, 768), Vector2(3584, 768), Vector2(3584, 1024), Vector2(0, 1024)
 			]
 		WORLD_CHUNK_LAYOUT_RECOVERY:
 			compression_points = [
-				Vector2(640, 416), Vector2(2304, 416), Vector2(2304, 736), Vector2(640, 736)
+				Vector2(768, 480), Vector2(2752, 480), Vector2(2752, 800), Vector2(768, 800)
 			]
 			risk_points = [
-				Vector2(0, 320), Vector2(3072, 320), Vector2(3072, 608), Vector2(0, 608)
+				Vector2(0, 352), Vector2(3584, 352), Vector2(3584, 672), Vector2(0, 672)
 			]
 			recovery_points = [
-				Vector2(0, 608), Vector2(3072, 608), Vector2(3072, 896), Vector2(0, 896)
+				Vector2(0, 672), Vector2(3584, 672), Vector2(3584, 1024), Vector2(0, 1024)
 			]
 	_arena_compression_zone = _add_pressure_polygon(
 		"CompressionZone",
@@ -732,6 +919,7 @@ func _all_level_rects() -> Array[Rect2i]:
 	var level_rects: Array[Rect2i] = []
 	for chunk_id: String in _world_chunk_sequence:
 		_append_world_chunk_rects(level_rects, chunk_id)
+	level_rects.append_array(TRANSITION_RECTS)
 	return level_rects
 
 # ============================================================================
@@ -787,33 +975,34 @@ func _current_world_chunk_pool_name() -> String:
 
 func _current_world_chunk_layout_candidates() -> Array[int]:
 	var meta_discovery_points: int = _meta_discovery_points
-	match _current_biome_stage:
-		"mid":
-			var mid_profiles: Array[String] = [WORLD_ENCOUNTER_PROFILE_MIXED, WORLD_ENCOUNTER_PROFILE_PRESSURE]
-			if meta_discovery_points >= 2:
-				mid_profiles.append(WORLD_ENCOUNTER_PROFILE_RECOVERY)
-			if meta_discovery_points >= 4:
-				mid_profiles.append(WORLD_ENCOUNTER_PROFILE_OPEN)
-			return _ranked_world_chunk_layout_candidates(mid_profiles)
-		"late":
-			var late_profiles: Array[String] = [WORLD_ENCOUNTER_PROFILE_PRESSURE, WORLD_ENCOUNTER_PROFILE_MIXED]
-			if meta_discovery_points >= 3:
-				late_profiles.append(WORLD_ENCOUNTER_PROFILE_RECOVERY)
-			if meta_discovery_points >= 5:
-				late_profiles.append(WORLD_ENCOUNTER_PROFILE_OPEN)
-			return _ranked_world_chunk_layout_candidates(late_profiles)
-		"endless":
-			var endless_profiles: Array[String] = [WORLD_ENCOUNTER_PROFILE_MIXED, WORLD_ENCOUNTER_PROFILE_PRESSURE, WORLD_ENCOUNTER_PROFILE_RECOVERY]
-			if meta_discovery_points >= 4:
-				endless_profiles.append(WORLD_ENCOUNTER_PROFILE_OPEN)
-			if meta_discovery_points >= 6:
-				endless_profiles.append(WORLD_ENCOUNTER_PROFILE_MIXED)
-			return _ranked_world_chunk_layout_candidates(endless_profiles)
+	var target_profiles: Array[String] = [WORLD_ENCOUNTER_PROFILE_OPEN, WORLD_ENCOUNTER_PROFILE_RECOVERY]
+
+	match _current_challenge_variant_name:
+		"surge":
+			target_profiles = [WORLD_ENCOUNTER_PROFILE_PRESSURE, WORLD_ENCOUNTER_PROFILE_MIXED]
+		"endurance":
+			target_profiles = [WORLD_ENCOUNTER_PROFILE_RECOVERY, WORLD_ENCOUNTER_PROFILE_OPEN]
+		"traversal":
+			target_profiles = [WORLD_ENCOUNTER_PROFILE_OPEN, WORLD_ENCOUNTER_PROFILE_MIXED]
+		"ecology":
+			target_profiles = [WORLD_ENCOUNTER_PROFILE_MIXED, WORLD_ENCOUNTER_PROFILE_PRESSURE, WORLD_ENCOUNTER_PROFILE_RECOVERY]
 		_:
-			var early_profiles: Array[String] = [WORLD_ENCOUNTER_PROFILE_OPEN, WORLD_ENCOUNTER_PROFILE_RECOVERY]
-			if meta_discovery_points >= 2:
-				early_profiles.append(WORLD_ENCOUNTER_PROFILE_MIXED)
-			return _ranked_world_chunk_layout_candidates(early_profiles)
+			target_profiles = [WORLD_ENCOUNTER_PROFILE_OPEN, WORLD_ENCOUNTER_PROFILE_RECOVERY]
+
+	if meta_discovery_points >= 2:
+		target_profiles.append(WORLD_ENCOUNTER_PROFILE_MIXED)
+	if meta_discovery_points >= 4:
+		target_profiles.append(WORLD_ENCOUNTER_PROFILE_PRESSURE)
+	if meta_discovery_points >= 6:
+		target_profiles.append(WORLD_ENCOUNTER_PROFILE_RECOVERY)
+
+	match _current_biome_stage:
+		"late":
+			target_profiles.append(WORLD_ENCOUNTER_PROFILE_PRESSURE)
+		"endless":
+			target_profiles.append(WORLD_ENCOUNTER_PROFILE_MIXED)
+
+	return _ranked_world_chunk_layout_candidates(target_profiles)
 
 func _ranked_world_chunk_layout_candidates(target_profiles: Array[String]) -> Array[int]:
 	var layout_scores: Array[Dictionary] = []
@@ -1060,12 +1249,16 @@ func _append_world_chunk_rects(level_rects: Array[Rect2i], chunk_id: String) -> 
 			level_rects.append_array(CENTRAL_ZONE_RECTS)
 		"left_flank":
 			level_rects.append_array(LEFT_ROUTE_RECTS)
+			level_rects.append_array(FAR_LEFT_RECTS)
 		"right_flank":
 			level_rects.append_array(RIGHT_ROUTE_RECTS)
+			level_rects.append_array(FAR_RIGHT_RECTS)
 		"upper_cross":
 			level_rects.append_array(UPPER_ROUTE_RECTS)
+			level_rects.append_array(HIGH_RIDGE_RECTS)
 		"lower_cross":
 			level_rects.append_array(LOWER_ROUTE_RECTS)
+			level_rects.append_array(LOW_BASIN_RECTS)
 		"bridge_cross":
 			level_rects.append_array(BRIDGE_RECTS)
 		"climb_cross":
@@ -1081,8 +1274,24 @@ func _append_world_chunk_rects(level_rects: Array[Rect2i], chunk_id: String) -> 
 		"vertical_landmark":
 			level_rects.append_array(LANDMARK_RECTS)
 			level_rects.append_array(CLIMB_RECTS)
+			level_rects.append_array(HIGH_RIDGE_RECTS)
 		"recovery_landmark":
 			level_rects.append_array(LANDMARK_RECTS)
+			level_rects.append_array(LOW_BASIN_RECTS)
+
+func _expand_combat_flow_rects(level_rects: Array[Rect2i]) -> Array[Rect2i]:
+	var expanded_rects: Array[Rect2i] = []
+
+	for rect: Rect2i in level_rects:
+		var expanded_rect: Rect2i = rect
+
+		if rect.size.y <= 2:
+			expanded_rect.position.y -= 1
+			expanded_rect.size.y += 1
+
+		expanded_rects.append(expanded_rect)
+
+	return expanded_rects
 
 func _current_world_spawn_hook_points() -> Array[Vector2i]:
 	match _world_chunk_layout_index:
@@ -1092,6 +1301,7 @@ func _current_world_spawn_hook_points() -> Array[Vector2i]:
 				Vector2i(22, 15),
 				Vector2i(30, 17),
 				Vector2i(34, 11),
+				Vector2i(45, 7),
 				Vector2i(47, 14),
 				Vector2i(18, 15)
 			]
@@ -1102,6 +1312,7 @@ func _current_world_spawn_hook_points() -> Array[Vector2i]:
 				Vector2i(66, 17),
 				Vector2i(82, 19),
 				Vector2i(90, 23),
+				Vector2i(104, 23),
 				Vector2i(74, 16)
 			]
 		WORLD_CHUNK_LAYOUT_HIGHLINE:
@@ -1111,6 +1322,7 @@ func _current_world_spawn_hook_points() -> Array[Vector2i]:
 				Vector2i(50, 8),
 				Vector2i(57, 11),
 				Vector2i(66, 13),
+				Vector2i(86, 6),
 				Vector2i(47, 14)
 			]
 		WORLD_CHUNK_LAYOUT_RECOVERY:
@@ -1120,6 +1332,7 @@ func _current_world_spawn_hook_points() -> Array[Vector2i]:
 				Vector2i(36, 25),
 				Vector2i(52, 24),
 				Vector2i(70, 22),
+				Vector2i(108, 24),
 				Vector2i(88, 23)
 			]
 		_:
@@ -1131,24 +1344,28 @@ func _current_world_reward_hook_points() -> Array[Vector2i]:
 			return [
 				Vector2i(2, 5),
 				Vector2i(14, 16),
+				Vector2i(24, 13),
 				Vector2i(47, 4)
 			]
 		WORLD_CHUNK_LAYOUT_RIGHT_FORK:
 			return [
 				Vector2i(47, 4),
 				Vector2i(80, 16),
+				Vector2i(104, 19),
 				Vector2i(94, 5)
 			]
 		WORLD_CHUNK_LAYOUT_HIGHLINE:
 			return [
 				Vector2i(14, 16),
 				Vector2i(47, 4),
+				Vector2i(72, 6),
 				Vector2i(66, 10)
 			]
 		WORLD_CHUNK_LAYOUT_RECOVERY:
 			return [
 				Vector2i(2, 5),
 				Vector2i(47, 4),
+				Vector2i(92, 25),
 				Vector2i(80, 16)
 			]
 		_:
@@ -1160,24 +1377,28 @@ func _current_world_arena_marker_points() -> Array[Vector2i]:
 			return [
 				Vector2i(14, 16),
 				Vector2i(23, 19),
+				Vector2i(36, 18),
 				Vector2i(48, 16)
 			]
 		WORLD_CHUNK_LAYOUT_RIGHT_FORK:
 			return [
 				Vector2i(48, 16),
 				Vector2i(60, 17),
+				Vector2i(76, 18),
 				Vector2i(80, 16)
 			]
 		WORLD_CHUNK_LAYOUT_HIGHLINE:
 			return [
 				Vector2i(23, 19),
 				Vector2i(48, 12),
+				Vector2i(72, 6),
 				Vector2i(66, 13)
 			]
 		WORLD_CHUNK_LAYOUT_RECOVERY:
 			return [
 				Vector2i(23, 19),
 				Vector2i(36, 25),
+				Vector2i(60, 27),
 				Vector2i(52, 24)
 			]
 		_:
@@ -1192,6 +1413,7 @@ func _current_world_melee_spawn_points() -> Array[Vector2i]:
 				Vector2i(24, 19),
 				Vector2i(32, 23),
 				Vector2i(38, 18),
+				Vector2i(45, 7),
 				Vector2i(47, 14)
 			]
 		WORLD_CHUNK_LAYOUT_RIGHT_FORK:
@@ -1201,6 +1423,7 @@ func _current_world_melee_spawn_points() -> Array[Vector2i]:
 				Vector2i(66, 20),
 				Vector2i(82, 19),
 				Vector2i(90, 23),
+				Vector2i(104, 23),
 				Vector2i(74, 16)
 			]
 		WORLD_CHUNK_LAYOUT_HIGHLINE:
@@ -1209,7 +1432,8 @@ func _current_world_melee_spawn_points() -> Array[Vector2i]:
 				Vector2i(30, 17),
 				Vector2i(42, 11),
 				Vector2i(50, 8),
-				Vector2i(57, 11)
+				Vector2i(57, 11),
+				Vector2i(72, 6)
 			]
 		WORLD_CHUNK_LAYOUT_RECOVERY:
 			return [
@@ -1218,6 +1442,7 @@ func _current_world_melee_spawn_points() -> Array[Vector2i]:
 				Vector2i(36, 25),
 				Vector2i(52, 24),
 				Vector2i(70, 22),
+				Vector2i(108, 24),
 				Vector2i(88, 23)
 			]
 		_:
@@ -1237,6 +1462,7 @@ func _current_world_mixed_spawn_points() -> Array[Vector2i]:
 				Vector2i(46, 16),
 				Vector2i(52, 16),
 				Vector2i(66, 17),
+				Vector2i(92, 21),
 				Vector2i(74, 16)
 			]
 		WORLD_CHUNK_LAYOUT_HIGHLINE:
@@ -1244,6 +1470,7 @@ func _current_world_mixed_spawn_points() -> Array[Vector2i]:
 				Vector2i(22, 15),
 				Vector2i(42, 11),
 				Vector2i(48, 12),
+				Vector2i(64, 7),
 				Vector2i(57, 11)
 			]
 		WORLD_CHUNK_LAYOUT_RECOVERY:
@@ -1251,6 +1478,7 @@ func _current_world_mixed_spawn_points() -> Array[Vector2i]:
 				Vector2i(22, 15),
 				Vector2i(36, 25),
 				Vector2i(52, 24),
+				Vector2i(76, 26),
 				Vector2i(70, 22)
 			]
 		_:
@@ -1268,18 +1496,21 @@ func _current_world_ranged_spawn_points() -> Array[Vector2i]:
 			return [
 				Vector2i(50, 8),
 				Vector2i(68, 11),
+				Vector2i(104, 19),
 				Vector2i(76, 20)
 			]
 		WORLD_CHUNK_LAYOUT_HIGHLINE:
 			return [
 				Vector2i(34, 11),
 				Vector2i(50, 8),
+				Vector2i(72, 6),
 				Vector2i(66, 13)
 			]
 		WORLD_CHUNK_LAYOUT_RECOVERY:
 			return [
 				Vector2i(34, 11),
 				Vector2i(50, 8),
+				Vector2i(92, 25),
 				Vector2i(60, 22)
 			]
 		_:
@@ -1294,6 +1525,18 @@ func _current_world_route_specs() -> Array[Dictionary]:
 					"points": LEFT_FORK_ROUTE_POINTS,
 					"color": _biome_route_safe_color,
 					"width": 8.5
+				},
+				{
+					"name": "LeftAscentRoute",
+					"points": LEFT_ASCENT_ROUTE_POINTS,
+					"color": _biome_route_safe_color.lerp(_biome_route_risk_color, 0.22),
+					"width": 6.5
+				},
+				{
+					"name": "FarLeftTraverse",
+					"points": FAR_LEFT_ROUTE_POINTS,
+					"color": _biome_route_recovery_color.lerp(_biome_route_safe_color, 0.18),
+					"width": 7.0
 				},
 				{
 					"name": "CrestRoute",
@@ -1317,6 +1560,18 @@ func _current_world_route_specs() -> Array[Dictionary]:
 					"width": 8.5
 				},
 				{
+					"name": "RightAscentRoute",
+					"points": RIGHT_ASCENT_ROUTE_POINTS,
+					"color": _biome_route_safe_color.lerp(_biome_route_risk_color, 0.22),
+					"width": 6.5
+				},
+				{
+					"name": "FarRightTraverse",
+					"points": FAR_RIGHT_ROUTE_POINTS,
+					"color": _biome_route_recovery_color.lerp(_biome_route_safe_color, 0.18),
+					"width": 7.0
+				},
+				{
 					"name": "DescentRoute",
 					"points": SAFE_ROUTE_POINTS,
 					"color": _biome_route_risk_color,
@@ -1338,6 +1593,18 @@ func _current_world_route_specs() -> Array[Dictionary]:
 					"width": 8.0
 				},
 				{
+					"name": "VerticalRoute",
+					"points": HIGHLINE_VERTICAL_ROUTE_POINTS,
+					"color": _biome_route_risk_color.lerp(_biome_route_safe_color, 0.16),
+					"width": 6.5
+				},
+				{
+					"name": "HighRidgeRoute",
+					"points": HIGH_RIDGE_ROUTE_POINTS,
+					"color": _biome_route_safe_color.lerp(_biome_route_risk_color, 0.20),
+					"width": 7.0
+				},
+				{
 					"name": "RiskRoute",
 					"points": RISK_ROUTE_POINTS,
 					"color": _biome_route_risk_color,
@@ -1357,6 +1624,18 @@ func _current_world_route_specs() -> Array[Dictionary]:
 					"points": RECOVERY_ROUTE_POINTS,
 					"color": _biome_route_recovery_color,
 					"width": 8.0
+				},
+				{
+					"name": "RecoverySpine",
+					"points": RECOVERY_ROUTE_POINTS,
+					"color": _biome_route_recovery_color.lerp(_biome_route_safe_color, 0.18),
+					"width": 6.5
+				},
+				{
+					"name": "LowBasinRoute",
+					"points": LOW_BASIN_ROUTE_POINTS,
+					"color": _biome_route_recovery_color.lerp(_biome_route_risk_color, 0.22),
+					"width": 7.0
 				},
 				{
 					"name": "CrossRoute",
@@ -1404,6 +1683,9 @@ func get_world_encounter_profile_name() -> String:
 
 func get_meta_discovery_points() -> int:
 	return _meta_discovery_points
+
+func get_world_challenge_variant_name() -> String:
+	return _current_challenge_variant_name
 
 func get_world_landmark_name() -> String:
 	return _current_world_landmark_name()
@@ -1676,6 +1958,7 @@ func _configure_player_camera(player_instance: Node2D) -> void:
 	if camera == null:
 		return
 
+	camera.zoom = Vector2(0.92, 0.92)
 	camera.limit_left = int(left_limit.position.x)
 	camera.limit_top = int(top_limit.position.y)
 	camera.limit_right = int(right_limit.position.x)
@@ -1702,6 +1985,8 @@ func _setup_enemy_director() -> void:
 	director.name = "EnemyDirector"
 	add_child(director)
 	director.setup($Gameplay, enemy_spawns_root, enemy_scene, $Gameplay/FutureHooks/SpawnZones)
+	if director.has_method("configure_challenge_variant"):
+		director.call("configure_challenge_variant", _current_challenge_variant_name)
 	if director.has_method("configure_world_chunk_profile"):
 		director.call(
 			"configure_world_chunk_profile",
@@ -1711,6 +1996,247 @@ func _setup_enemy_director() -> void:
 			_world_chunk_ecology_counts
 		)
 	_enemy_director = director
+
+# ============================================================================
+# AUDIO
+# ============================================================================
+
+func _setup_audio_feedback() -> void:
+	_audio_atmosphere_player = _create_audio_player("AtmosphereAudio", AUDIO_ATMOSPHERE_VOLUME_DB)
+	_audio_combat_player = _create_audio_player("CombatAudio", AUDIO_COMBAT_VOLUME_DB)
+	_audio_movement_player = _create_audio_player("MovementAudio", AUDIO_MOVEMENT_VOLUME_DB)
+	_audio_status_player = _create_audio_player("StatusAudio", AUDIO_STATUS_VOLUME_DB)
+	_audio_atmosphere_phase = 0.0
+	_audio_atmosphere_pulse_phase = 0.0
+
+func _create_audio_player(player_name: String, volume_db: float) -> AudioStreamPlayer:
+	var audio_player: AudioStreamPlayer = AudioStreamPlayer.new()
+	audio_player.name = player_name
+	audio_player.volume_db = volume_db
+
+	var generator: AudioStreamGenerator = AudioStreamGenerator.new()
+	generator.mix_rate = AUDIO_MIX_RATE
+	generator.buffer_length = AUDIO_BUFFER_LENGTH
+	audio_player.stream = generator
+
+	add_child(audio_player)
+	audio_player.play()
+	return audio_player
+
+func play_world_audio_cue(cue_name: String, intensity: float = 1.0) -> void:
+	var cue_intensity: float = clamp(intensity, 0.35, 1.8)
+	match cue_name:
+		"player_fire":
+			_play_audio_cue(_audio_combat_player, 540.0, 0.07, AUDIO_COMBAT_VOLUME_DB, cue_intensity, 0.18)
+		"player_jump":
+			_play_audio_cue(_audio_movement_player, 400.0, 0.08, AUDIO_MOVEMENT_VOLUME_DB, cue_intensity, 0.16)
+		"player_land":
+			_play_audio_cue(_audio_movement_player, 180.0, 0.09, AUDIO_MOVEMENT_VOLUME_DB, cue_intensity, 0.10)
+		"player_hurt":
+			_play_audio_cue(_audio_combat_player, 140.0, 0.10, AUDIO_COMBAT_VOLUME_DB - 2.0, cue_intensity, 0.24)
+		"enemy_windup":
+			_play_audio_cue(_audio_combat_player, 260.0, 0.09, AUDIO_COMBAT_VOLUME_DB, cue_intensity, 0.22)
+		"ranged_windup":
+			_play_audio_cue(_audio_combat_player, 320.0, 0.09, AUDIO_COMBAT_VOLUME_DB, cue_intensity, 0.18)
+		"swarm_windup":
+			_play_audio_cue(_audio_combat_player, 220.0, 0.08, AUDIO_COMBAT_VOLUME_DB, cue_intensity, 0.20)
+		"boss_windup":
+			_play_audio_cue(_audio_combat_player, 170.0, 0.13, AUDIO_COMBAT_VOLUME_DB + 1.0, cue_intensity, 0.26)
+		"boss_phase":
+			_play_audio_cue(_audio_status_player, 330.0, 0.11, AUDIO_STATUS_VOLUME_DB, cue_intensity, 0.22)
+		"level_up":
+			_play_audio_cue(_audio_status_player, 660.0, 0.12, AUDIO_STATUS_VOLUME_DB, cue_intensity, 0.24)
+		"stage_reward":
+			_play_audio_cue(_audio_status_player, 520.0, 0.12, AUDIO_REWARD_VOLUME_DB, cue_intensity, 0.20)
+		"boss_reward":
+			_play_audio_cue(_audio_status_player, 620.0, 0.14, AUDIO_REWARD_VOLUME_DB, cue_intensity, 0.22)
+		_:
+			pass
+
+func _play_audio_cue(audio_player: AudioStreamPlayer, frequency: float, duration: float, volume_db: float, intensity: float, harmonic_mix: float) -> void:
+	if audio_player == null:
+		return
+
+	var generator: AudioStreamGenerator = audio_player.stream as AudioStreamGenerator
+	if generator == null:
+		return
+
+	var playback: AudioStreamGeneratorPlayback = audio_player.get_stream_playback() as AudioStreamGeneratorPlayback
+	if playback == null:
+		audio_player.play()
+		playback = audio_player.get_stream_playback() as AudioStreamGeneratorPlayback
+		if playback == null:
+			return
+
+	playback.clear_buffer()
+	audio_player.volume_db = volume_db
+	if not audio_player.playing:
+		audio_player.play()
+
+	var sample_rate: float = max(generator.mix_rate, 11025.0)
+	var frame_count: int = min(int(ceil(duration * sample_rate)), playback.get_frames_available())
+	if frame_count <= 0:
+		return
+
+	var amplitude: float = pow(10.0, volume_db / 20.0) * intensity
+	var phase: float = 0.0
+	var phase_step: float = frequency / sample_rate
+	var attack_frames: int = max(1, int(float(frame_count) * 0.12))
+	var release_frames: int = max(1, int(float(frame_count) * 0.20))
+	for frame_index: int in range(frame_count):
+		var attack_strength: float = min(1.0, float(frame_index) / float(attack_frames))
+		var release_strength: float = min(1.0, float(frame_count - frame_index) / float(release_frames))
+		var envelope: float = min(attack_strength, release_strength)
+		var primary_wave: float = sin(phase * TAU)
+		var harmonic_wave: float = sin(phase * TAU * 2.0)
+		var sample: float = (primary_wave * (1.0 - harmonic_mix) + harmonic_wave * harmonic_mix * 0.5) * envelope * amplitude
+		playback.push_frame(Vector2(sample, sample))
+		phase = fmod(phase + phase_step, 1.0)
+
+func _update_survival_audio(_delta: float) -> void:
+	_fill_atmosphere_audio_buffer()
+
+func _fill_atmosphere_audio_buffer() -> void:
+	if _audio_atmosphere_player == null:
+		return
+
+	var generator: AudioStreamGenerator = _audio_atmosphere_player.stream as AudioStreamGenerator
+	if generator == null:
+		return
+
+	var playback: AudioStreamGeneratorPlayback = _audio_atmosphere_player.get_stream_playback() as AudioStreamGeneratorPlayback
+	if playback == null:
+		return
+
+	var frames_available: int = playback.get_frames_available()
+	if frames_available <= 0:
+		return
+
+	var pacing_state: String = "recovery"
+	var boss_state: String = "none"
+	var boss_survival_state: String = "none"
+	if _enemy_director != null and is_instance_valid(_enemy_director):
+		if _enemy_director.has_method("get_pacing_state"):
+			pacing_state = String(_enemy_director.call("get_pacing_state"))
+		if _enemy_director.has_method("get_boss_encounter_state"):
+			boss_state = String(_enemy_director.call("get_boss_encounter_state"))
+		if _enemy_director.has_method("get_boss_survival_state"):
+			boss_survival_state = String(_enemy_director.call("get_boss_survival_state"))
+
+	var base_frequency: float = _current_ambient_frequency()
+	var variant_frequency_bonus: float = _current_variant_audio_frequency_bonus()
+	var intensity_boost: float = _current_ambient_intensity(pacing_state, boss_state, boss_survival_state)
+	var sample_rate: float = max(generator.mix_rate, 11025.0)
+	var phase_step: float = max(base_frequency + variant_frequency_bonus, 18.0) / sample_rate
+	var pulse_step: float = _current_ambient_pulse_frequency(pacing_state) / sample_rate
+	var amplitude: float = pow(10.0, AUDIO_ATMOSPHERE_VOLUME_DB / 20.0) * intensity_boost
+	var phase_mix: float = _current_ambient_harmonic_mix(pacing_state, boss_state)
+
+	for frame_index: int in range(frames_available):
+		var pulse_strength: float = 0.5 + 0.5 * sin(_audio_atmosphere_pulse_phase * TAU)
+		var carrier_wave: float = sin(_audio_atmosphere_phase * TAU)
+		var harmonic_wave: float = sin(_audio_atmosphere_phase * TAU * 2.0)
+		var stereo_offset: float = 0.012 if _current_challenge_variant_name == CHALLENGE_VARIANT_TRAVERSAL else 0.0
+		var sample: float = (carrier_wave * (1.0 - phase_mix) + harmonic_wave * phase_mix * 0.45) * pulse_strength * amplitude
+		playback.push_frame(Vector2(sample * (1.0 - stereo_offset), sample * (1.0 + stereo_offset)))
+		_audio_atmosphere_phase = fmod(_audio_atmosphere_phase + phase_step, 1.0)
+		_audio_atmosphere_pulse_phase = fmod(_audio_atmosphere_pulse_phase + pulse_step, 1.0)
+
+func _current_ambient_frequency() -> float:
+	match _current_biome_stage:
+		"mid":
+			return 68.0
+		"late":
+			return 78.0
+		"endless":
+			return 74.0
+		_:
+			return 58.0
+
+func _current_variant_audio_frequency_bonus() -> float:
+	match _current_challenge_variant_name:
+		CHALLENGE_VARIANT_SURGE:
+			return 8.0
+		CHALLENGE_VARIANT_ENDURANCE:
+			return -5.0
+		CHALLENGE_VARIANT_TRAVERSAL:
+			return 4.0
+		CHALLENGE_VARIANT_ECOLOGY:
+			return 5.0
+		_:
+			return 0.0
+
+func _current_ambient_pulse_frequency(pacing_state: String) -> float:
+	match pacing_state:
+		"pressure":
+			return 2.8
+		"climax":
+			return 3.8
+		"build":
+			return 2.0
+		_:
+			return 1.4
+
+func _current_ambient_harmonic_mix(pacing_state: String, boss_state: String) -> float:
+	var harmonic_mix: float = 0.12
+	match _current_biome_stage:
+		"late":
+			harmonic_mix += 0.04
+		"endless":
+			harmonic_mix += 0.05
+		_:
+			pass
+
+	match pacing_state:
+		"pressure":
+			harmonic_mix += 0.04
+		"climax":
+			harmonic_mix += 0.06
+		_:
+			pass
+
+	if boss_state != "none":
+		harmonic_mix += 0.08
+
+	return clamp(harmonic_mix, 0.08, 0.32)
+
+func _current_ambient_intensity(pacing_state: String, boss_state: String, boss_survival_state: String) -> float:
+	var intensity: float = 0.55
+	match _current_biome_stage:
+		"mid":
+			intensity += 0.06
+		"late":
+			intensity += 0.11
+		"endless":
+			intensity += 0.13
+		_:
+			pass
+
+	match _current_challenge_variant_name:
+		CHALLENGE_VARIANT_SURGE:
+			intensity += 0.08
+		CHALLENGE_VARIANT_ENDURANCE:
+			intensity -= 0.04
+		CHALLENGE_VARIANT_ECOLOGY:
+			intensity += 0.03
+		_:
+			pass
+
+	match pacing_state:
+		"pressure":
+			intensity += 0.08
+		"climax":
+			intensity += 0.14
+		_:
+			pass
+
+	if boss_state != "none":
+		intensity += 0.11
+
+	if boss_survival_state == "climax":
+		intensity += 0.06
+
+	return clamp(intensity, 0.36, 0.96)
 
 # ============================================================================
 # DEBUG
@@ -1737,6 +2263,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	var player_build_identity: String = "none"
 	var player_build_archetype: String = "none"
 	var player_meta_discovery_points: int = 0
+	var player_mastery_goal_count: int = 0
+	var challenge_variant: String = _current_challenge_variant_name
 	var chunk_categories: String = "none"
 	var chunk_pool: String = _world_chunk_pool_name
 	var encounter_profile: String = _world_encounter_profile_name
@@ -1772,6 +2300,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			player_build_archetype = String(player_node.call("get_build_archetype_label"))
 		if player_node.has_method("get_meta_discovery_points"):
 			player_meta_discovery_points = int(player_node.call("get_meta_discovery_points"))
+		if player_node.has_method("get_mastery_goal_count"):
+			player_mastery_goal_count = int(player_node.call("get_mastery_goal_count"))
 
 	chunk_categories = _current_world_chunk_category_summary()
 	landmark_name = get_world_landmark_name()
@@ -1784,7 +2314,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		reward_hooks_root.get_child_count(),
 		_current_biome_stage
 	])
-	print("Arena pressure | pacing: %s | encounter: %s | loop: %s #%d (%.2f) | finale: %s | boss: %s (%s p%d %s) | player: %s / %s | meta: %d | landmark: %s | validation: %s | layout: %s | pool: %s" % [
+	print("Arena pressure | pacing: %s | encounter: %s | loop: %s #%d (%.2f) | finale: %s | boss: %s (%s p%d %s) | player: %s / %s | meta: %d | mastery: %d | variant: %s | landmark: %s | validation: %s | layout: %s | pool: %s" % [
 		pacing_state,
 		encounter_state,
 		loop_state,
@@ -1798,6 +2328,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		player_build_identity,
 		player_build_archetype,
 		player_meta_discovery_points,
+		player_mastery_goal_count,
+		challenge_variant,
 		landmark_name,
 		validation_state,
 		_world_chunk_layout_name,

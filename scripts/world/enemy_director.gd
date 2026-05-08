@@ -181,6 +181,7 @@ var _landmark_event_cooldown_timer: float = 0.0
 var _landmark_event_type: String = "none"
 var _world_chunk_pool_name: String = "none"
 var _world_encounter_profile_name: String = "mixed"
+var _challenge_variant_name: String = "balanced"
 var _world_chunk_category_sequence: Array[String] = []
 var _world_chunk_ecology_counts: Dictionary = {}
 var _boss_enemy_scene: PackedScene = null
@@ -223,6 +224,19 @@ func setup(gameplay_root: Node2D, enemy_spawn_root: Node2D, enemy_scene: PackedS
 	_spawn_timer = base_spawn_interval
 	_debug_timer = DEBUG_PRINT_INTERVAL
 	_setup_debug_ui()
+
+func configure_challenge_variant(variant_name: String) -> void:
+	match variant_name:
+		"surge":
+			_challenge_variant_name = "surge"
+		"endurance":
+			_challenge_variant_name = "endurance"
+		"traversal":
+			_challenge_variant_name = "traversal"
+		"ecology":
+			_challenge_variant_name = "ecology"
+		_:
+			_challenge_variant_name = "balanced"
 
 func configure_world_chunk_profile(pool_name: String, encounter_profile_name: String, chunk_categories: Array[String], ecology_counts: Dictionary) -> void:
 	_world_chunk_pool_name = pool_name
@@ -831,6 +845,7 @@ func _current_spawn_interval() -> float:
 	var recovery_factor: float = _current_recovery_window_interval_multiplier()
 	var landmark_factor: float = _current_landmark_interval_multiplier()
 	var transition_factor: float = _current_stage_transition_interval_multiplier()
+	var challenge_factor: float = _current_challenge_interval_multiplier()
 	var interval: float = base_spawn_interval / pressure_factor
 	interval *= pacing_factor
 	interval *= composition_factor
@@ -840,6 +855,7 @@ func _current_spawn_interval() -> float:
 	interval *= recovery_factor
 	interval *= landmark_factor
 	interval *= transition_factor
+	interval *= challenge_factor
 	return max(minimum_spawn_interval, interval)
 
 func _current_max_enemies() -> int:
@@ -848,6 +864,7 @@ func _current_max_enemies() -> int:
 	var pressure_bonus: int = int(floor(_pressure * 0.75))
 	var stage_bonus: int = _current_run_stage_max_enemy_bonus()
 	var loop_bonus: int = _current_run_loop_max_enemy_bonus()
+	var challenge_bonus: int = _current_challenge_max_enemy_bonus()
 	var finale_bonus: int = _current_stage_finale_max_enemy_bonus()
 	var boss_penalty: int = _current_boss_max_enemy_penalty()
 	var recovery_penalty: int = 0
@@ -857,7 +874,7 @@ func _current_max_enemies() -> int:
 	var transition_penalty: int = _current_stage_transition_max_enemy_penalty()
 	var loop_transition_penalty: int = _current_run_loop_transition_max_enemy_penalty()
 
-	return clampi(base_max_enemies + time_bonus + level_bonus + pressure_bonus + stage_bonus + loop_bonus + finale_bonus + landmark_bonus - recovery_penalty - transition_penalty - loop_transition_penalty - boss_penalty, base_max_enemies, max_enemy_cap)
+	return clampi(base_max_enemies + time_bonus + level_bonus + pressure_bonus + stage_bonus + loop_bonus + challenge_bonus + finale_bonus + landmark_bonus - recovery_penalty - transition_penalty - loop_transition_penalty - boss_penalty, base_max_enemies, max_enemy_cap)
 
 func _current_pacing_state(active_enemy_count: int) -> String:
 	var pressure_threshold: float = _current_run_stage_pressure_threshold()
@@ -965,62 +982,65 @@ func _current_stage_transition_interval_multiplier() -> float:
 	return RUN_STAGE_TRANSITION_INTERVAL_MULTIPLIER
 
 func _current_world_chunk_spawn_interval_multiplier() -> float:
+	var challenge_multiplier: float = _current_challenge_interval_multiplier()
 	match _world_encounter_profile_name:
 		"recovery":
-			return 1.06
+			return 1.06 * challenge_multiplier
 		"open":
-			return 1.04
+			return 1.04 * challenge_multiplier
 		"pressure":
-			return 0.94
+			return 0.94 * challenge_multiplier
 		_:
-			return 1.0
+			return 1.0 * challenge_multiplier
 
 func _current_world_chunk_spawn_burst_multiplier() -> float:
+	var challenge_multiplier: float = _current_challenge_spawn_burst_multiplier()
 	match _world_encounter_profile_name:
 		"recovery":
-			return 0.92
+			return 0.92 * challenge_multiplier
 		"open":
-			return 0.95
+			return 0.95 * challenge_multiplier
 		"pressure":
-			return 1.08
+			return 1.08 * challenge_multiplier
 		_:
-			return 1.0
+			return 1.0 * challenge_multiplier
 
 func _current_world_chunk_enemy_weight_multiplier(enemy_scene: PackedScene) -> float:
 	var archetype_multiplier: float = _current_build_archetype_multiplier(enemy_scene)
 	var ecology_multiplier: float = _current_ecology_layer_multiplier(enemy_scene)
+	var challenge_multiplier: float = _current_challenge_enemy_weight_multiplier(enemy_scene)
 
 	if enemy_scene == _ranged_enemy_scene:
 		match _world_encounter_profile_name:
 			"pressure":
-				return 1.18 * archetype_multiplier * ecology_multiplier
+				return 1.18 * archetype_multiplier * ecology_multiplier * challenge_multiplier
 			"open":
-				return 0.92 * archetype_multiplier * ecology_multiplier
+				return 0.92 * archetype_multiplier * ecology_multiplier * challenge_multiplier
 			"recovery":
-				return 0.90 * archetype_multiplier * ecology_multiplier
+				return 0.90 * archetype_multiplier * ecology_multiplier * challenge_multiplier
 			_:
-				return 1.0 * archetype_multiplier * ecology_multiplier
+				return 1.0 * archetype_multiplier * ecology_multiplier * challenge_multiplier
 
 	if enemy_scene == _swarm_enemy_scene:
 		match _world_encounter_profile_name:
 			"pressure":
-				return 1.12 * archetype_multiplier * ecology_multiplier
+				return 1.12 * archetype_multiplier * ecology_multiplier * challenge_multiplier
 			"open":
-				return 0.88 * archetype_multiplier * ecology_multiplier
+				return 0.88 * archetype_multiplier * ecology_multiplier * challenge_multiplier
 			"recovery":
-				return 0.86 * archetype_multiplier * ecology_multiplier
+				return 0.86 * archetype_multiplier * ecology_multiplier * challenge_multiplier
 			_:
-				return 1.0 * archetype_multiplier * ecology_multiplier
+				return 1.0 * archetype_multiplier * ecology_multiplier * challenge_multiplier
 
 	match _world_encounter_profile_name:
 		"recovery":
-			return 1.08 * archetype_multiplier * ecology_multiplier
+			return 1.08 * archetype_multiplier * ecology_multiplier * challenge_multiplier
 		"open":
-			return 1.05 * archetype_multiplier * ecology_multiplier
+			return 1.05 * archetype_multiplier * ecology_multiplier * challenge_multiplier
 		"pressure":
-			return 0.96 * archetype_multiplier * ecology_multiplier
+			return 0.96 * archetype_multiplier * ecology_multiplier * challenge_multiplier
 		_:
-			return 1.0 * archetype_multiplier * ecology_multiplier
+			return 1.0 * archetype_multiplier * ecology_multiplier * challenge_multiplier
 
 func _current_ecology_layer_state(active_enemy_count: int) -> String:
 	var melee_score: int = _role_enemy_count(MELEE_ENEMY_GROUP_NAME) + int(_world_chunk_ecology_counts.get("melee", 0))
@@ -1088,15 +1108,16 @@ func _current_ecology_layer_multiplier(enemy_scene: PackedScene) -> float:
 			return 1.0
 
 func _current_world_chunk_elite_multiplier() -> float:
+	var challenge_multiplier: float = _current_challenge_elite_multiplier()
 	match _world_encounter_profile_name:
 		"pressure":
-			return 1.08
+			return 1.08 * challenge_multiplier
 		"recovery":
-			return 0.96
+			return 0.96 * challenge_multiplier
 		"open":
-			return 0.98
+			return 0.98 * challenge_multiplier
 		_:
-			return 1.0
+			return 1.0 * challenge_multiplier
 
 func _current_run_loop_index() -> int:
 	if _run_stage != "endless":
@@ -1386,6 +1407,9 @@ func _current_run_stage() -> String:
 func get_run_stage() -> String:
 	return _run_stage
 
+func get_challenge_variant_name() -> String:
+	return _challenge_variant_name
+
 func get_pacing_state() -> String:
 	return _pacing_state
 
@@ -1435,28 +1459,28 @@ func _current_run_stage_interval_multiplier() -> float:
 func _current_run_stage_recovery_gain_multiplier() -> float:
 	match _run_stage:
 		"early":
-			return RUN_STAGE_EARLY_RECOVERY_GAIN_MULTIPLIER
+			return RUN_STAGE_EARLY_RECOVERY_GAIN_MULTIPLIER * _current_challenge_recovery_gain_multiplier()
 		"mid":
-			return RUN_STAGE_MID_RECOVERY_GAIN_MULTIPLIER
+			return RUN_STAGE_MID_RECOVERY_GAIN_MULTIPLIER * _current_challenge_recovery_gain_multiplier()
 		"late":
-			return RUN_STAGE_LATE_RECOVERY_GAIN_MULTIPLIER
+			return RUN_STAGE_LATE_RECOVERY_GAIN_MULTIPLIER * _current_challenge_recovery_gain_multiplier()
 		"endless":
-			return RUN_STAGE_ENDLESS_RECOVERY_GAIN_MULTIPLIER
+			return RUN_STAGE_ENDLESS_RECOVERY_GAIN_MULTIPLIER * _current_challenge_recovery_gain_multiplier()
 		_:
-			return 1.0
+			return 1.0 * _current_challenge_recovery_gain_multiplier()
 
 func _current_run_stage_recovery_decay_multiplier() -> float:
 	match _run_stage:
 		"early":
-			return RUN_STAGE_EARLY_RECOVERY_DECAY_MULTIPLIER
+			return RUN_STAGE_EARLY_RECOVERY_DECAY_MULTIPLIER * _current_challenge_recovery_decay_multiplier()
 		"mid":
-			return RUN_STAGE_MID_RECOVERY_DECAY_MULTIPLIER
+			return RUN_STAGE_MID_RECOVERY_DECAY_MULTIPLIER * _current_challenge_recovery_decay_multiplier()
 		"late":
-			return RUN_STAGE_LATE_RECOVERY_DECAY_MULTIPLIER
+			return RUN_STAGE_LATE_RECOVERY_DECAY_MULTIPLIER * _current_challenge_recovery_decay_multiplier()
 		"endless":
-			return RUN_STAGE_ENDLESS_RECOVERY_DECAY_MULTIPLIER
+			return RUN_STAGE_ENDLESS_RECOVERY_DECAY_MULTIPLIER * _current_challenge_recovery_decay_multiplier()
 		_:
-			return 1.0
+			return 1.0 * _current_challenge_recovery_decay_multiplier()
 
 func _current_run_stage_combat_gain_multiplier() -> float:
 	return _current_run_stage_recovery_gain_multiplier()
@@ -1476,6 +1500,146 @@ func _current_run_stage_max_enemy_bonus() -> int:
 			return 3
 		_:
 			return 0
+
+func _current_challenge_interval_multiplier() -> float:
+	match _challenge_variant_name:
+		"surge":
+			return 0.90
+		"endurance":
+			return 1.04
+		"traversal":
+			return 1.00
+		"ecology":
+			return 0.96
+		_:
+			return 1.0
+
+func _current_challenge_spawn_burst_multiplier() -> float:
+	match _challenge_variant_name:
+		"surge":
+			return 1.14
+		"endurance":
+			return 0.90
+		"traversal":
+			return 0.96
+		"ecology":
+			return 1.06
+		_:
+			return 1.0
+
+func _current_challenge_build_threshold_multiplier() -> float:
+	match _challenge_variant_name:
+		"surge":
+			return 0.92
+		"endurance":
+			return 1.06
+		"traversal":
+			return 0.98
+		"ecology":
+			return 1.00
+		_:
+			return 1.0
+
+func _current_challenge_pressure_threshold_multiplier() -> float:
+	match _challenge_variant_name:
+		"surge":
+			return 0.94
+		"endurance":
+			return 1.08
+		"traversal":
+			return 1.02
+		"ecology":
+			return 0.97
+		_:
+			return 1.0
+
+func _current_challenge_max_enemy_bonus() -> int:
+	match _challenge_variant_name:
+		"surge":
+			return 1
+		"endurance":
+			return -1
+		"traversal":
+			return -1
+		"ecology":
+			return 0
+		_:
+			return 0
+
+func _current_challenge_elite_multiplier() -> float:
+	match _challenge_variant_name:
+		"surge":
+			return 1.12
+		"endurance":
+			return 0.98
+		"traversal":
+			return 1.00
+		"ecology":
+			return 1.08
+		_:
+			return 1.0
+
+func _current_challenge_recovery_gain_multiplier() -> float:
+	match _challenge_variant_name:
+		"surge":
+			return 0.88
+		"endurance":
+			return 0.90
+		"traversal":
+			return 1.00
+		"ecology":
+			return 0.94
+		_:
+			return 1.0
+
+func _current_challenge_recovery_decay_multiplier() -> float:
+	match _challenge_variant_name:
+		"surge":
+			return 1.12
+		"endurance":
+			return 1.10
+		"traversal":
+			return 1.00
+		"ecology":
+			return 1.04
+		_:
+			return 1.0
+
+func _current_challenge_enemy_weight_multiplier(enemy_scene: PackedScene) -> float:
+	if enemy_scene == null:
+		return 1.0
+
+	match _challenge_variant_name:
+		"surge":
+			if enemy_scene == _enemy_scene:
+				return 1.06
+			if enemy_scene == _swarm_enemy_scene:
+				return 1.04
+			return 1.0
+		"endurance":
+			if enemy_scene == _enemy_scene:
+				return 0.98
+			if enemy_scene == _ranged_enemy_scene:
+				return 1.02
+			return 1.0
+		"traversal":
+			if enemy_scene == _ranged_enemy_scene:
+				return 1.10
+			if enemy_scene == _swarm_enemy_scene:
+				return 1.05
+			if enemy_scene == _enemy_scene:
+				return 0.96
+			return 1.0
+		"ecology":
+			if enemy_scene == _enemy_scene:
+				return 1.03
+			if enemy_scene == _ranged_enemy_scene:
+				return 1.05
+			if enemy_scene == _swarm_enemy_scene:
+				return 1.05
+			return 1.0
+		_:
+			return 1.0
 
 # ============================================================================
 # SPAWNING
@@ -1785,30 +1949,32 @@ func _current_encounter_composition(active_enemy_count: int) -> String:
 	return "spike"
 
 func _current_run_stage_build_threshold() -> float:
+	var challenge_multiplier: float = _current_challenge_build_threshold_multiplier()
 	match _run_stage:
 		"early":
-			return RUN_STAGE_EARLY_BUILD_THRESHOLD
+			return RUN_STAGE_EARLY_BUILD_THRESHOLD * challenge_multiplier
 		"mid":
-			return RUN_STAGE_MID_BUILD_THRESHOLD
+			return RUN_STAGE_MID_BUILD_THRESHOLD * challenge_multiplier
 		"late":
-			return RUN_STAGE_LATE_BUILD_THRESHOLD
+			return RUN_STAGE_LATE_BUILD_THRESHOLD * challenge_multiplier
 		"endless":
-			return RUN_STAGE_ENDLESS_BUILD_THRESHOLD
+			return RUN_STAGE_ENDLESS_BUILD_THRESHOLD * challenge_multiplier
 		_:
-			return RUN_STAGE_EARLY_BUILD_THRESHOLD
+			return RUN_STAGE_EARLY_BUILD_THRESHOLD * challenge_multiplier
 
 func _current_run_stage_pressure_threshold() -> float:
+	var challenge_multiplier: float = _current_challenge_pressure_threshold_multiplier()
 	match _run_stage:
 		"early":
-			return RUN_STAGE_EARLY_PRESSURE_THRESHOLD
+			return RUN_STAGE_EARLY_PRESSURE_THRESHOLD * challenge_multiplier
 		"mid":
-			return RUN_STAGE_MID_PRESSURE_THRESHOLD
+			return RUN_STAGE_MID_PRESSURE_THRESHOLD * challenge_multiplier
 		"late":
-			return RUN_STAGE_LATE_PRESSURE_THRESHOLD
+			return RUN_STAGE_LATE_PRESSURE_THRESHOLD * challenge_multiplier
 		"endless":
-			return RUN_STAGE_ENDLESS_PRESSURE_THRESHOLD
+			return RUN_STAGE_ENDLESS_PRESSURE_THRESHOLD * challenge_multiplier
 		_:
-			return RUN_STAGE_EARLY_PRESSURE_THRESHOLD
+			return RUN_STAGE_EARLY_PRESSURE_THRESHOLD * challenge_multiplier
 
 func _current_elite_cap() -> int:
 	return clampi(1 + int(floor(_elapsed_time / 300.0)), 1, 3)
@@ -1926,6 +2092,8 @@ func _current_run_stage_spawn_burst_chance() -> float:
 	if _run_stage == "endless":
 		base_chance = base_chance * _current_run_loop_spawn_multiplier()
 		base_chance += float(_run_loop_index) * RUN_LOOP_SPAWN_BURST_STEP
+
+	base_chance *= _current_challenge_spawn_burst_multiplier()
 
 	return min(base_chance, 0.55)
 
@@ -2057,7 +2225,7 @@ func _setup_debug_ui() -> void:
 func _update_debug(delta: float) -> void:
 	_debug_timer -= delta
 	if _debug_label != null:
-		_debug_label.text = "PRES: %.2f\nENEMIES: %d/%d\nMELEE/RNG/SWM: %d/%d/%d\nELITES: %d/%d\nCD: %.2f\nSTATE: %s\nCOMP: %s\nECO: %s\nRUN: %s\nLOOP: %s #%d %.2f\nPOOL: %s\nPROFILE: %s\nBOSS: %s %s\nBUILD: %s\nFINALE: %s %.2f\nRELIEF: %.2f\nTRANS: %s %.2f\nEVENT: %s %.2f" % [
+		_debug_label.text = "PRES: %.2f\nENEMIES: %d/%d\nMELEE/RNG/SWM: %d/%d/%d\nELITES: %d/%d\nCD: %.2f\nSTATE: %s\nCOMP: %s\nECO: %s\nRUN: %s\nLOOP: %s #%d %.2f\nVARIANT: %s\nPOOL: %s\nPROFILE: %s\nBOSS: %s %s\nBUILD: %s\nFINALE: %s %.2f\nRELIEF: %.2f\nTRANS: %s %.2f\nEVENT: %s %.2f" % [
 			_pressure,
 			_active_enemy_count(),
 			_current_max_enemies(),
@@ -2074,6 +2242,7 @@ func _update_debug(delta: float) -> void:
 			get_run_loop_state(),
 			get_run_loop_index(),
 			get_run_loop_progress(),
+			_challenge_variant_name,
 			_world_chunk_pool_name,
 			_world_encounter_profile_name,
 			_boss_encounter_state,
@@ -2093,7 +2262,7 @@ func _update_debug(delta: float) -> void:
 
 	_debug_timer = DEBUG_PRINT_INTERVAL
 	print(
-		"Director pressure=%.2f enemies=%d/%d interval=%.2f state=%s comp=%s eco=%s loop=%s #%d pool=%s profile=%s boss=%s %s finale=%s %.2f" % [
+		"Director pressure=%.2f enemies=%d/%d interval=%.2f state=%s comp=%s eco=%s loop=%s #%d variant=%s pool=%s profile=%s boss=%s %s finale=%s %.2f" % [
 			_pressure,
 			_active_enemy_count(),
 			_current_max_enemies(),
@@ -2103,6 +2272,7 @@ func _update_debug(delta: float) -> void:
 			_ecology_layer_state,
 			get_run_loop_state(),
 			get_run_loop_index(),
+			_challenge_variant_name,
 			_world_chunk_pool_name,
 			_world_encounter_profile_name,
 			_boss_encounter_state,
