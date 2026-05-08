@@ -1,0 +1,38 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/enemies/boss_enemy.gd" id="1_boss"]
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_collision"]
+radius = 11.0
+height = 28.0
+
+[sub_resource type="Gradient" id="Gradient_enemy"]
+offsets = PackedFloat32Array(0, 1)
+colors = PackedColorArray(0.196078, 0.101961, 0.286275, 1, 0.780392, 0.384314, 0.184314, 1)
+
+[sub_resource type="GradientTexture2D" id="GradientTexture2D_enemy"]
+gradient = SubResource("Gradient_enemy")
+width = 22
+height = 36
+
+[node name="BossEnemy" type="CharacterBody2D"]
+scale = Vector2(1.28, 1.28)
+script = ExtResource("1_boss")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, -16)
+shape = SubResource("CapsuleShape2D_collision")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+position = Vector2(0, -16)
+texture = SubResource("GradientTexture2D_enemy")
+
+[node name="WallRayCast2D" type="RayCast2D" parent="."]
+position = Vector2(0, -16)
+target_position = Vector2(20, 0)
+enabled = true
+
+[node name="LedgeRayCast2D" type="RayCast2D" parent="."]
+position = Vector2(0, -4)
+target_position = Vector2(18, 28)
+enabled = true

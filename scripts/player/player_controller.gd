@@ -10,6 +10,12 @@ const JUMP_BUFFER_SECONDS: float = 0.12
 const JUMP_CUT_MULTIPLIER: float = 0.5
 const PROJECTILE_SPAWN_OFFSET: Vector2 = Vector2(18.0, -20.0)
 const LEVEL_UP_SELECTION_SCENE_PATH: String = "res://scenes/ui/level_up_selection.tscn"
+const META_PROGRESS_SAVE_PATH: String = "user://goblin_game_meta_progress.cfg"
+const META_PROGRESS_SECTION: String = "meta_progress"
+const META_DISCOVERY_POINTS_KEY: String = "discovery_points"
+const META_DISCOVERED_IDS_KEY: String = "discovered_ids"
+const META_UNLOCKED_UPGRADE_IDS_KEY: String = "unlocked_upgrade_ids"
+const META_MASTERY_GOAL_IDS_KEY: String = "mastery_goal_ids"
 const DAMAGE_UPGRADE_ID: StringName = &"damage_up"
 const ATTACK_SPEED_UPGRADE_ID: StringName = &"attack_speed_up"
 const MOVE_SPEED_UPGRADE_ID: StringName = &"move_speed_up"
@@ -24,6 +30,19 @@ const BUILD_ID_MOBILITY: StringName = &"mobility"
 const BUILD_ID_AGGRESSION: StringName = &"aggression"
 const BUILD_ID_RANGED: StringName = &"ranged"
 const BUILD_ID_MOMENTUM: StringName = &"momentum"
+const BUILD_ARCHETYPE_BALANCED: StringName = &"balanced"
+const BUILD_ARCHETYPE_MOBILITY: StringName = &"mobility"
+const BUILD_ARCHETYPE_PRESSURE: StringName = &"pressure"
+const BUILD_ARCHETYPE_CONTROL: StringName = &"control"
+const BUILD_ARCHETYPE_SWARM_CLEAR: StringName = &"swarm_clear"
+const BUILD_ARCHETYPE_POSITIONING: StringName = &"positioning"
+const BUILD_ARCHETYPE_MOMENTUM: StringName = &"momentum"
+const MOBILITY_SURGE_UPGRADE_ID: StringName = &"mobility_surge"
+const PRESSURE_SPIKE_UPGRADE_ID: StringName = &"pressure_spike"
+const CONTROL_GRID_UPGRADE_ID: StringName = &"control_grid"
+const SWARM_CATALYST_UPGRADE_ID: StringName = &"swarm_catalyst"
+const POSITIONING_EDGE_UPGRADE_ID: StringName = &"positioning_edge"
+const MOMENTUM_OVERCLOCK_UPGRADE_ID: StringName = &"momentum_overclock"
 const BASE_XP_TO_NEXT_LEVEL: int = 8
 const XP_PER_LEVEL_STEP: int = 4
 const BASE_PROJECTILE_SPEED: float = 840.0
@@ -37,6 +56,17 @@ const LEVEL_UP_FLASH_SECONDS: float = 0.22
 const LEVEL_UP_PULSE_SECONDS: float = 0.24
 const STAGE_REWARD_FLASH_SECONDS: float = 0.20
 const STAGE_REWARD_PULSE_SECONDS: float = 0.22
+const FIRE_PULSE_SECONDS: float = 0.10
+const MOVE_LEAN_MAX_RADIANS: float = 0.06
+const AIR_STRETCH_X: float = 0.04
+const AIR_STRETCH_Y: float = 0.04
+const RARE_UPGRADE_MIN_LEVEL: int = 4
+const RARE_UPGRADE_BASE_CHANCE: float = 0.16
+const RARE_UPGRADE_LEVEL_STEP: float = 0.03
+const RARE_UPGRADE_MAX_CHANCE: float = 0.42
+const MASTERY_SURVIVAL_MILESTONE_SECONDS: Array[int] = [180, 360, 600, 900]
+const MASTERY_NO_DAMAGE_MILESTONE_SECONDS: Array[int] = [30, 60, 120]
+const MASTERY_LEVEL_MILESTONES: Array[int] = [12, 16]
 const CONTACT_KNOCKBACK_X: float = 180.0
 const CONTACT_KNOCKBACK_Y: float = -180.0
 const DEBUG_LABEL_OFFSET: Vector2 = Vector2(12.0, 12.0)
@@ -108,6 +138,7 @@ var _invulnerability_timer: float = 0.0
 var _invulnerability_blink_timer: float = 0.0
 var _fire_cooldown_timer: float = 0.0
 var _facing_direction: float = 1.0
+var _was_on_floor: bool = false
 var _death_flash_timer: float = 0.0
 var _death_restart_timer: float = 0.0
 var _is_dead: bool = false
@@ -118,6 +149,7 @@ var _level_up_flash_timer: float = 0.0
 var _level_up_pulse_timer: float = 0.0
 var _stage_reward_flash_timer: float = 0.0
 var _stage_reward_pulse_timer: float = 0.0
+var _fire_pulse_timer: float = 0.0
 var _pending_level_up_choices: int = 0
 var _projectile_damage_bonus: int = 0
 var _attack_speed_multiplier: float = 1.0
@@ -139,6 +171,13 @@ var _aggression_specialization_applied: bool = false
 var _ranged_specialization_applied: bool = false
 var _momentum_specialization_applied: bool = false
 var _build_identity: StringName = BUILD_ID_BALANCED
+var _taken_rare_upgrade_ids: Array[StringName] = []
+var _meta_discovery_points: int = 0
+var _meta_discovered_ids: Array[StringName] = []
+var _meta_unlocked_upgrade_ids: Array[StringName] = []
+var _mastery_goal_ids: Array[StringName] = []
+var _run_survival_time: float = 0.0
+var _run_no_damage_time: float = 0.0
 var _upgrade_rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _level_up_selection_ui: CanvasLayer = null
 var _health_canvas_layer: CanvasLayer = null
@@ -153,9 +192,15 @@ func _ready() -> void:
 	_xp_to_next_level = _xp_required_for_level(_current_level)
 	add_to_group("player")
 	_upgrade_rng.randomize()
+	_was_on_floor = is_on_floor()
+	_load_meta_progress()
+	_refresh_meta_unlocks()
 	_ensure_input_map()
 	_create_debug_health_display()
 	_update_debug_health_display()
+
+func _exit_tree() -> void:
+	_save_meta_progress()
 
 func _physics_process(delta: float) -> void:
 	if _is_dead:
@@ -165,6 +210,7 @@ func _physics_process(delta: float) -> void:
 		return
 
 	_update_damage_timers(delta)
+	_update_mastery_timers(delta)
 	_update_jump_timers(delta)
 	_update_proc_timers(delta)
 	_apply_horizontal_movement(delta)
@@ -206,6 +252,7 @@ func _handle_fire_input() -> void:
 		return
 
 	_spawn_projectile()
+	_play_world_audio_cue("player_fire", 1.0)
 	_fire_cooldown_timer = _current_fire_cooldown_duration()
 
 # ============================================================================
@@ -247,6 +294,7 @@ func _try_start_jump() -> void:
 	velocity.y = jump_velocity - _jump_velocity_bonus
 	_jump_buffer_timer = 0.0
 	_coyote_timer = 0.0
+	_play_world_audio_cue("player_jump", 1.0)
 
 func _apply_variable_jump_height() -> void:
 	if not _jump_was_released:
@@ -258,8 +306,14 @@ func _apply_variable_jump_height() -> void:
 	velocity.y *= JUMP_CUT_MULTIPLIER
 
 func _refresh_floor_state() -> void:
-	if is_on_floor():
+	var on_floor_now: bool = is_on_floor()
+	if on_floor_now and not _was_on_floor:
+		_play_world_audio_cue("player_land", 0.9)
+
+	if on_floor_now:
 		_coyote_timer = COYOTE_TIME_SECONDS
+
+	_was_on_floor = on_floor_now
 
 func _spawn_projectile() -> void:
 	var projectile: Projectile = Projectile.new()
@@ -281,6 +335,7 @@ func _spawn_projectile() -> void:
 	projectile.critical = is_critical
 	projectile.crit_multiplier = BASE_PROJECTILE_CRIT_MULTIPLIER
 	spawn_root.add_child(projectile)
+	_fire_pulse_timer = FIRE_PULSE_SECONDS
 
 	if _split_shot_chance > 0.0 and _upgrade_rng.randf() < _split_shot_chance:
 		_spawn_split_projectile(spawn_root, spawn_offset, base_damage)
@@ -300,6 +355,7 @@ func _update_damage_timers(delta: float) -> void:
 	_level_up_pulse_timer = max(_level_up_pulse_timer - delta, 0.0)
 	_stage_reward_flash_timer = max(_stage_reward_flash_timer - delta, 0.0)
 	_stage_reward_pulse_timer = max(_stage_reward_pulse_timer - delta, 0.0)
+	_fire_pulse_timer = max(_fire_pulse_timer - delta, 0.0)
 
 	if _invulnerability_timer <= 0.0:
 		_invulnerability_blink_timer = 0.0
@@ -334,6 +390,59 @@ func get_current_level() -> int:
 func get_build_identity() -> StringName:
 	return _build_identity
 
+func get_build_archetype() -> StringName:
+	if _mobility_upgrade_score < specialization_threshold and _aggression_upgrade_score < specialization_threshold and _ranged_upgrade_score < specialization_threshold and _momentum_upgrade_score < specialization_threshold:
+		return BUILD_ARCHETYPE_BALANCED
+
+	if _mobility_upgrade_score >= specialization_threshold and _ranged_upgrade_score >= specialization_threshold and abs(_mobility_upgrade_score - _ranged_upgrade_score) <= 1:
+		return BUILD_ARCHETYPE_POSITIONING
+
+	if _momentum_upgrade_score >= specialization_threshold and _mobility_upgrade_score >= _momentum_upgrade_score:
+		return BUILD_ARCHETYPE_MOMENTUM
+
+	if _mobility_upgrade_score >= specialization_threshold and _mobility_upgrade_score >= _aggression_upgrade_score + 1 and _mobility_upgrade_score >= _ranged_upgrade_score + 1:
+		return BUILD_ARCHETYPE_MOBILITY
+
+	if _ranged_upgrade_score >= specialization_threshold and _ranged_upgrade_score >= _aggression_upgrade_score + 1 and _ranged_upgrade_score >= _mobility_upgrade_score + 1:
+		if _projectile_pierce_bonus > 0 or _split_shot_chance > 0.0:
+			return BUILD_ARCHETYPE_SWARM_CLEAR
+
+		return BUILD_ARCHETYPE_CONTROL
+
+	if _aggression_upgrade_score >= specialization_threshold and _aggression_upgrade_score >= _mobility_upgrade_score + 1 and _aggression_upgrade_score >= _ranged_upgrade_score + 1:
+		return BUILD_ARCHETYPE_PRESSURE
+
+	return BUILD_ARCHETYPE_BALANCED
+
+func get_build_archetype_label() -> String:
+	match get_build_archetype():
+		BUILD_ARCHETYPE_MOBILITY:
+			return "Mobility"
+		BUILD_ARCHETYPE_PRESSURE:
+			return "Pressure"
+		BUILD_ARCHETYPE_CONTROL:
+			return "Control"
+		BUILD_ARCHETYPE_SWARM_CLEAR:
+			return "Swarm Clear"
+		BUILD_ARCHETYPE_POSITIONING:
+			return "Positioning"
+		BUILD_ARCHETYPE_MOMENTUM:
+			return "Momentum"
+		_:
+			return "Balanced"
+
+func get_meta_discovery_points() -> int:
+	return _meta_discovery_points
+
+func get_meta_progress_label() -> String:
+	return "Discovery %d" % _meta_discovery_points
+
+func get_mastery_goal_count() -> int:
+	return _mastery_goal_ids.size()
+
+func get_mastery_progress_label() -> String:
+	return "Mastery %d" % _mastery_goal_ids.size()
+
 func apply_stage_transition_reward(stage_name: String) -> void:
 	if _is_dead:
 		return
@@ -344,6 +453,8 @@ func apply_stage_transition_reward(stage_name: String) -> void:
 
 	_stage_reward_flash_timer = max(_stage_reward_flash_timer, STAGE_REWARD_FLASH_SECONDS)
 	_stage_reward_pulse_timer = max(_stage_reward_pulse_timer, STAGE_REWARD_PULSE_SECONDS)
+	_play_world_audio_cue("stage_reward", 1.0)
+	_record_meta_discovery(StringName("stage_%s" % stage_name))
 
 func _stage_transition_reward_heal_amount(stage_name: String) -> int:
 	match stage_name:
@@ -355,6 +466,41 @@ func _stage_transition_reward_heal_amount(stage_name: String) -> int:
 			return 18
 		_:
 			return 8
+
+func apply_boss_victory_reward(stage_name: String, boss_role: StringName) -> void:
+	if _is_dead:
+		return
+
+	var reward_heal_amount: int = _boss_victory_reward_heal_amount(stage_name, boss_role)
+	if reward_heal_amount > 0:
+		_health = min(_health + reward_heal_amount, max_health)
+
+	_stage_reward_flash_timer = max(_stage_reward_flash_timer, STAGE_REWARD_FLASH_SECONDS)
+	_stage_reward_pulse_timer = max(_stage_reward_pulse_timer, STAGE_REWARD_PULSE_SECONDS)
+	_play_world_audio_cue("boss_reward", 1.0)
+	_record_meta_discovery(StringName("boss_%s_%s" % [stage_name, String(boss_role)]))
+	_record_mastery_goal(StringName("boss_clear_%s" % String(boss_role)))
+
+func _boss_victory_reward_heal_amount(stage_name: String, boss_role: StringName) -> int:
+	var reward_heal_amount: int = 0
+
+	match stage_name:
+		"endless":
+			reward_heal_amount = 16
+		"late":
+			reward_heal_amount = 12
+		_:
+			reward_heal_amount = 8
+
+	match boss_role:
+		&"swarm":
+			reward_heal_amount += 2
+		&"control":
+			reward_heal_amount += 1
+		_:
+			pass
+
+	return reward_heal_amount
 
 func _add_experience(amount: int) -> void:
 	if amount <= 0:
@@ -375,6 +521,15 @@ func _resolve_level_ups() -> void:
 		_level_up_flash_timer = LEVEL_UP_FLASH_SECONDS
 		_level_up_pulse_timer = LEVEL_UP_PULSE_SECONDS
 		_pending_level_up_choices += 1
+		_play_world_audio_cue("level_up", 1.0)
+
+	if _current_level == 4:
+		_record_meta_discovery(&"level_4")
+	elif _current_level == 8:
+		_record_meta_discovery(&"level_8")
+	for mastery_level_milestone: int in MASTERY_LEVEL_MILESTONES:
+		if _current_level == mastery_level_milestone:
+			_record_mastery_goal(StringName("level_%d" % mastery_level_milestone))
 
 	_try_show_level_up_selection()
 
@@ -411,7 +566,7 @@ func _try_show_level_up_selection() -> void:
 		_level_up_selection_ui.connect("upgrade_selected", Callable(self, "_on_upgrade_selected"))
 
 	if _level_up_selection_ui.has_method("setup_selection"):
-		_level_up_selection_ui.call("setup_selection", _current_level, _build_level_up_choices(), _build_identity)
+		_level_up_selection_ui.call("setup_selection", _current_level, _build_level_up_choices(), _build_identity, get_build_archetype_label(), _meta_discovery_points, get_mastery_goal_count())
 
 	get_tree().paused = true
 
@@ -435,6 +590,9 @@ func _on_upgrade_selected(upgrade_id: StringName) -> void:
 	get_tree().paused = false
 
 func _apply_upgrade(upgrade_id: StringName) -> void:
+	if _apply_rare_upgrade(upgrade_id):
+		return
+
 	if upgrade_id == DAMAGE_UPGRADE_ID:
 		_projectile_damage_bonus += damage_upgrade_amount
 		_record_build_specialization(upgrade_id)
@@ -491,6 +649,76 @@ func _apply_upgrade(upgrade_id: StringName) -> void:
 		_refresh_build_identity()
 		return
 
+func _apply_rare_upgrade(upgrade_id: StringName) -> bool:
+	if _taken_rare_upgrade_ids.has(upgrade_id):
+		return true
+
+	if upgrade_id == MOBILITY_SURGE_UPGRADE_ID:
+		_taken_rare_upgrade_ids.append(upgrade_id)
+		_record_meta_discovery(&"rare_mobility_surge")
+		_move_speed_bonus += 32.0
+		_jump_velocity_bonus += 42.0
+		_mobility_upgrade_score += 2
+		_momentum_upgrade_score += 1
+		_refresh_build_identity()
+		return true
+
+	if upgrade_id == PRESSURE_SPIKE_UPGRADE_ID:
+		_taken_rare_upgrade_ids.append(upgrade_id)
+		_record_meta_discovery(&"rare_pressure_spike")
+		_projectile_damage_bonus += 2
+		_attack_speed_multiplier *= 0.92
+		_critical_chance_bonus += 0.06
+		_aggression_upgrade_score += 2
+		_refresh_build_identity()
+		return true
+
+	if upgrade_id == CONTROL_GRID_UPGRADE_ID:
+		_taken_rare_upgrade_ids.append(upgrade_id)
+		_record_meta_discovery(&"rare_control_grid")
+		_projectile_speed_multiplier *= 1.14
+		_projectile_pierce_bonus += 1
+		_ranged_upgrade_score += 2
+		_refresh_build_identity()
+		return true
+
+	if upgrade_id == SWARM_CATALYST_UPGRADE_ID:
+		_taken_rare_upgrade_ids.append(upgrade_id)
+		_record_meta_discovery(&"rare_swarm_catalyst")
+		_projectile_pierce_bonus += 1
+		_split_shot_chance += 0.20
+		_critical_chance_bonus += 0.03
+		_ranged_upgrade_score += 2
+		_aggression_upgrade_score += 1
+		_refresh_build_identity()
+		return true
+
+	if upgrade_id == POSITIONING_EDGE_UPGRADE_ID:
+		_taken_rare_upgrade_ids.append(upgrade_id)
+		_record_meta_discovery(&"rare_positioning_edge")
+		_move_speed_bonus += 18.0
+		_projectile_speed_multiplier *= 1.08
+		_jump_velocity_bonus += 18.0
+		_mobility_upgrade_score += 1
+		_ranged_upgrade_score += 1
+		_refresh_build_identity()
+		return true
+
+	if upgrade_id == MOMENTUM_OVERCLOCK_UPGRADE_ID:
+		_taken_rare_upgrade_ids.append(upgrade_id)
+		_record_meta_discovery(&"rare_momentum_overclock")
+		_kill_momentum_unlocked = true
+		_kill_momentum_timer = max(_kill_momentum_timer, kill_momentum_upgrade_duration + 0.75)
+		_kill_momentum_flash_timer = max(_kill_momentum_flash_timer, 0.24)
+		_move_speed_bonus += 18.0
+		_attack_speed_multiplier *= 0.90
+		_momentum_upgrade_score += 2
+		_mobility_upgrade_score += 1
+		_refresh_build_identity()
+		return true
+
+	return false
+
 # ============================================================================
 # UI
 # ============================================================================
@@ -509,22 +737,48 @@ func _current_projectile_pierce() -> int:
 func _current_critical_chance() -> float:
 	return clamp(_critical_chance_bonus, 0.0, 0.35)
 
+func _play_world_audio_cue(cue_name: String, intensity: float = 1.0) -> void:
+	var current_scene: Node = get_tree().current_scene
+	if current_scene == null or not is_instance_valid(current_scene):
+		return
+
+	if current_scene.has_method("play_world_audio_cue"):
+		current_scene.call("play_world_audio_cue", cue_name, intensity)
+
 func _update_proc_timers(delta: float) -> void:
 	_kill_momentum_timer = max(_kill_momentum_timer - delta, 0.0)
 	_kill_momentum_flash_timer = max(_kill_momentum_flash_timer - delta, 0.0)
 
 func _build_level_up_choices() -> Array:
+	var selected_choices: Array = _select_upgrade_choices(3)
+	var rare_choice: Dictionary = _select_rare_upgrade_choice()
+	if not rare_choice.is_empty() and not selected_choices.is_empty():
+		var replace_index: int = _upgrade_rng.randi_range(0, selected_choices.size() - 1)
+		selected_choices[replace_index] = rare_choice
+	return selected_choices
+
+func _select_upgrade_choices(choice_count: int) -> Array:
 	var available_choices: Array = _weighted_upgrade_pool()
 	var selected_choices: Array = []
-	var choice_count: int = min(3, available_choices.size())
+	var selection_count: int = min(choice_count, available_choices.size())
 
-	for choice_index: int in range(choice_count):
+	for choice_index: int in range(selection_count):
 		var random_index: int = _upgrade_rng.randi_range(0, available_choices.size() - 1)
 		selected_choices.append(available_choices[random_index])
 		var selected_upgrade_id: StringName = available_choices[random_index]["id"]
 		available_choices = _remove_upgrade_from_pool(available_choices, selected_upgrade_id)
 
 	return selected_choices
+
+func _select_rare_upgrade_choice() -> Dictionary:
+	if _rare_upgrade_chance() <= 0.0:
+		return {}
+
+	var rare_upgrade_pool: Array = _weighted_rare_upgrade_pool()
+	if rare_upgrade_pool.is_empty():
+		return {}
+
+	return rare_upgrade_pool[_upgrade_rng.randi_range(0, rare_upgrade_pool.size() - 1)]
 
 func _weighted_upgrade_pool() -> Array:
 	var upgrade_options: Array = _available_upgrade_options()
@@ -544,6 +798,47 @@ func _weighted_upgrade_pool() -> Array:
 
 	return weighted_pool
 
+func _weighted_rare_upgrade_pool() -> Array:
+	var rare_upgrade_options: Array = _available_rare_upgrade_options()
+	var weighted_pool: Array = []
+	var preferred_build_tags: Array = _preferred_build_tags()
+
+	for option: Dictionary in rare_upgrade_options:
+		if _taken_rare_upgrade_ids.has(option["id"]):
+			continue
+
+		var weight: int = 1
+		var option_tags: Array = option.get("tags", [])
+
+		for build_tag: StringName in preferred_build_tags:
+			if option_tags.has(build_tag):
+				weight += 2
+
+		for weight_index: int in range(weight):
+			weighted_pool.append(option)
+
+	return weighted_pool
+
+func _rare_upgrade_chance() -> float:
+	if _current_level < RARE_UPGRADE_MIN_LEVEL:
+		return 0.0
+
+	var chance: float = RARE_UPGRADE_BASE_CHANCE
+	chance += float(_current_level - RARE_UPGRADE_MIN_LEVEL) * RARE_UPGRADE_LEVEL_STEP
+
+	if get_build_archetype() == BUILD_ARCHETYPE_BALANCED:
+		chance *= 0.75
+	else:
+		chance += 0.05
+
+	if _build_identity != BUILD_ID_BALANCED:
+		chance += 0.03
+
+	if _meta_discovery_points >= 5:
+		chance += min(float(_meta_discovery_points - 4) * 0.015, 0.08)
+
+	return clamp(chance, 0.0, RARE_UPGRADE_MAX_CHANCE)
+
 func _remove_upgrade_from_pool(available_choices: Array, upgrade_id: StringName) -> Array:
 	var filtered_choices: Array = []
 	for option: Dictionary in available_choices:
@@ -555,15 +850,19 @@ func _remove_upgrade_from_pool(available_choices: Array, upgrade_id: StringName)
 	return filtered_choices
 
 func _preferred_build_tags() -> Array[StringName]:
-	match _build_identity:
-		BUILD_ID_MOBILITY:
+	match get_build_archetype():
+		BUILD_ARCHETYPE_MOBILITY:
 			return [BUILD_ID_MOBILITY, BUILD_ID_MOMENTUM]
-		BUILD_ID_AGGRESSION:
+		BUILD_ARCHETYPE_PRESSURE:
 			return [BUILD_ID_AGGRESSION, BUILD_ID_MOMENTUM]
-		BUILD_ID_RANGED:
-			return [BUILD_ID_RANGED, BUILD_ID_AGGRESSION]
-		BUILD_ID_MOMENTUM:
-			return [BUILD_ID_MOMENTUM, BUILD_ID_MOBILITY]
+		BUILD_ARCHETYPE_CONTROL:
+			return [BUILD_ID_RANGED, BUILD_ID_MOBILITY]
+		BUILD_ARCHETYPE_SWARM_CLEAR:
+			return [BUILD_ID_RANGED, BUILD_ID_AGGRESSION, BUILD_ID_MOMENTUM]
+		BUILD_ARCHETYPE_POSITIONING:
+			return [BUILD_ID_MOBILITY, BUILD_ID_RANGED, BUILD_ID_MOMENTUM]
+		BUILD_ARCHETYPE_MOMENTUM:
+			return [BUILD_ID_MOMENTUM, BUILD_ID_MOBILITY, BUILD_ID_AGGRESSION]
 		_:
 			return [BUILD_ID_AGGRESSION, BUILD_ID_MOBILITY, BUILD_ID_RANGED, BUILD_ID_MOMENTUM]
 
@@ -604,6 +903,120 @@ func _record_build_specialization(upgrade_id: StringName) -> void:
 		_momentum_upgrade_score += 1
 		_mobility_upgrade_score += 1
 
+func _load_meta_progress() -> void:
+	_meta_discovery_points = 0
+	_meta_discovered_ids.clear()
+	_meta_unlocked_upgrade_ids.clear()
+	_mastery_goal_ids.clear()
+	_run_survival_time = 0.0
+	_run_no_damage_time = 0.0
+
+	if not FileAccess.file_exists(META_PROGRESS_SAVE_PATH):
+		return
+
+	var config: ConfigFile = ConfigFile.new()
+	if config.load(META_PROGRESS_SAVE_PATH) != OK:
+		return
+
+	_meta_discovery_points = max(int(config.get_value(META_PROGRESS_SECTION, META_DISCOVERY_POINTS_KEY, 0)), 0)
+	_meta_discovered_ids = _string_list_to_string_name_array(config.get_value(META_PROGRESS_SECTION, META_DISCOVERED_IDS_KEY, []))
+	_meta_unlocked_upgrade_ids = _string_list_to_string_name_array(config.get_value(META_PROGRESS_SECTION, META_UNLOCKED_UPGRADE_IDS_KEY, []))
+	_mastery_goal_ids = _string_list_to_string_name_array(config.get_value(META_PROGRESS_SECTION, META_MASTERY_GOAL_IDS_KEY, []))
+
+func _save_meta_progress() -> void:
+	var config: ConfigFile = ConfigFile.new()
+	config.set_value(META_PROGRESS_SECTION, META_DISCOVERY_POINTS_KEY, _meta_discovery_points)
+	config.set_value(META_PROGRESS_SECTION, META_DISCOVERED_IDS_KEY, _string_name_array_to_string_list(_meta_discovered_ids))
+	config.set_value(META_PROGRESS_SECTION, META_UNLOCKED_UPGRADE_IDS_KEY, _string_name_array_to_string_list(_meta_unlocked_upgrade_ids))
+	config.set_value(META_PROGRESS_SECTION, META_MASTERY_GOAL_IDS_KEY, _string_name_array_to_string_list(_mastery_goal_ids))
+	config.save(META_PROGRESS_SAVE_PATH)
+
+func _record_meta_discovery(discovery_id: StringName) -> void:
+	if discovery_id == StringName():
+		return
+
+	if _meta_discovered_ids.has(discovery_id):
+		return
+
+	_meta_discovered_ids.append(discovery_id)
+	_meta_discovery_points += 1
+	_refresh_meta_unlocks()
+	_save_meta_progress()
+
+func _record_mastery_goal(goal_id: StringName) -> void:
+	if goal_id == StringName():
+		return
+
+	if _mastery_goal_ids.has(goal_id):
+		return
+
+	_mastery_goal_ids.append(goal_id)
+	_meta_discovery_points += 1
+	_refresh_meta_unlocks()
+	_save_meta_progress()
+
+func _update_mastery_timers(delta: float) -> void:
+	if _is_dead:
+		return
+
+	_run_survival_time += delta
+	_run_no_damage_time += delta
+
+	for milestone_seconds: int in MASTERY_SURVIVAL_MILESTONE_SECONDS:
+		if _run_survival_time >= float(milestone_seconds):
+			_record_mastery_goal(StringName("survival_%dm" % int(milestone_seconds / 60)))
+
+	for milestone_seconds: int in MASTERY_NO_DAMAGE_MILESTONE_SECONDS:
+		if _run_no_damage_time >= float(milestone_seconds):
+			_record_mastery_goal(StringName("flawless_%ds" % milestone_seconds))
+
+func _refresh_meta_unlocks() -> void:
+	_unlock_meta_upgrade_if_ready(PROJECTILE_PIERCE_UPGRADE_ID, _meta_discovery_points >= 1)
+	_unlock_meta_upgrade_if_ready(CRIT_BURST_UPGRADE_ID, _meta_discovery_points >= 2)
+	_unlock_meta_upgrade_if_ready(SPLIT_SHOT_UPGRADE_ID, _meta_discovery_points >= 3)
+	_unlock_meta_upgrade_if_ready(KILL_MOMENTUM_UPGRADE_ID, _meta_discovery_points >= 4)
+	_unlock_meta_upgrade_if_ready(MOBILITY_SURGE_UPGRADE_ID, _meta_discovery_points >= 5)
+	_unlock_meta_upgrade_if_ready(PRESSURE_SPIKE_UPGRADE_ID, _meta_discovery_points >= 5)
+	_unlock_meta_upgrade_if_ready(CONTROL_GRID_UPGRADE_ID, _meta_discovery_points >= 5)
+	_unlock_meta_upgrade_if_ready(SWARM_CATALYST_UPGRADE_ID, _meta_discovery_points >= 6)
+	_unlock_meta_upgrade_if_ready(POSITIONING_EDGE_UPGRADE_ID, _meta_discovery_points >= 6)
+	_unlock_meta_upgrade_if_ready(MOMENTUM_OVERCLOCK_UPGRADE_ID, _meta_discovery_points >= 6)
+
+func _unlock_meta_upgrade_if_ready(upgrade_id: StringName, can_unlock: bool) -> void:
+	if not can_unlock:
+		return
+
+	if _meta_unlocked_upgrade_ids.has(upgrade_id):
+		return
+
+	_meta_unlocked_upgrade_ids.append(upgrade_id)
+
+func _is_base_upgrade_id(upgrade_id: StringName) -> bool:
+	return upgrade_id == DAMAGE_UPGRADE_ID \
+		or upgrade_id == ATTACK_SPEED_UPGRADE_ID \
+		or upgrade_id == MOVE_SPEED_UPGRADE_ID \
+		or upgrade_id == PROJECTILE_SPEED_UPGRADE_ID \
+		or upgrade_id == JUMP_POWER_UPGRADE_ID
+
+func _is_upgrade_unlocked(upgrade_id: StringName) -> bool:
+	if _is_base_upgrade_id(upgrade_id):
+		return true
+
+	return _meta_unlocked_upgrade_ids.has(upgrade_id)
+
+func _string_list_to_string_name_array(items: Variant) -> Array[StringName]:
+	var string_names: Array[StringName] = []
+	if items is Array:
+		for item: Variant in items:
+			string_names.append(StringName(String(item)))
+	return string_names
+
+func _string_name_array_to_string_list(items: Array[StringName]) -> Array[String]:
+	var strings: Array[String] = []
+	for item: StringName in items:
+		strings.append(String(item))
+	return strings
+
 func _refresh_build_identity() -> void:
 	_apply_specialization_bonus()
 	var dominant_score: int = _aggression_upgrade_score
@@ -633,6 +1046,7 @@ func _refresh_build_identity() -> void:
 		return
 
 	_build_identity = dominant_identity
+	_record_meta_discovery(StringName("archetype_%s" % String(_build_identity)))
 
 func _apply_specialization_bonus() -> void:
 	if not _mobility_specialization_applied and _mobility_upgrade_score >= specialization_threshold:
@@ -657,7 +1071,7 @@ func _apply_specialization_bonus() -> void:
 		kill_momentum_move_speed_bonus += momentum_specialization_move_bonus
 
 func _available_upgrade_options() -> Array:
-	return [
+	var upgrade_options: Array = [
 		{
 			"id": DAMAGE_UPGRADE_ID,
 			"title": "Damage Up",
@@ -685,7 +1099,7 @@ func _available_upgrade_options() -> Array:
 		{
 			"id": PROJECTILE_PIERCE_UPGRADE_ID,
 			"title": "Projectile Pierce Up",
-			"description": "Shots pass through one extra enemy.",
+			"description": "Shots pass through one extra enemy and can chain on impact.",
 			"tags": [BUILD_ID_RANGED]
 		},
 		{
@@ -697,13 +1111,13 @@ func _available_upgrade_options() -> Array:
 		{
 			"id": CRIT_BURST_UPGRADE_ID,
 			"title": "Crit Burst",
-			"description": "Shots sometimes strike harder.",
+			"description": "Critical shots briefly shock enemies.",
 			"tags": [BUILD_ID_AGGRESSION]
 		},
 		{
 			"id": SPLIT_SHOT_UPGRADE_ID,
 			"title": "Split Shot",
-			"description": "Shots occasionally split.",
+			"description": "Split shots briefly burn enemies.",
 			"tags": [BUILD_ID_RANGED]
 		},
 		{
@@ -713,6 +1127,66 @@ func _available_upgrade_options() -> Array:
 			"tags": [BUILD_ID_MOMENTUM, BUILD_ID_MOBILITY]
 		}
 	]
+
+	var filtered_options: Array = []
+	for option: Dictionary in upgrade_options:
+		if _is_upgrade_unlocked(option["id"]):
+			filtered_options.append(option)
+
+	return filtered_options
+
+func _available_rare_upgrade_options() -> Array:
+	var rare_upgrade_options: Array = [
+		{
+			"id": MOBILITY_SURGE_UPGRADE_ID,
+			"title": "Mobility Surge",
+			"description": "Run faster, leap higher, and keep momentum longer.",
+			"tags": [BUILD_ID_MOBILITY, BUILD_ID_MOMENTUM],
+			"rarity": "rare"
+		},
+		{
+			"id": PRESSURE_SPIKE_UPGRADE_ID,
+			"title": "Pressure Spike",
+			"description": "Shots hit harder and pressure comes online faster.",
+			"tags": [BUILD_ID_AGGRESSION, BUILD_ID_MOMENTUM],
+			"rarity": "rare"
+		},
+		{
+			"id": CONTROL_GRID_UPGRADE_ID,
+			"title": "Control Grid",
+			"description": "Projectiles travel faster and hold lanes better.",
+			"tags": [BUILD_ID_RANGED, BUILD_ID_MOBILITY],
+			"rarity": "rare"
+		},
+		{
+			"id": SWARM_CATALYST_UPGRADE_ID,
+			"title": "Swarm Catalyst",
+			"description": "Piercing and split pressure gain stronger chain value.",
+			"tags": [BUILD_ID_RANGED, BUILD_ID_AGGRESSION],
+			"rarity": "rare"
+		},
+		{
+			"id": POSITIONING_EDGE_UPGRADE_ID,
+			"title": "Positioning Edge",
+			"description": "Move into better angles and keep better escape routes.",
+			"tags": [BUILD_ID_MOBILITY, BUILD_ID_RANGED],
+			"rarity": "rare"
+		},
+		{
+			"id": MOMENTUM_OVERCLOCK_UPGRADE_ID,
+			"title": "Momentum Overclock",
+			"description": "Kill momentum lasts longer and accelerates harder.",
+			"tags": [BUILD_ID_MOMENTUM, BUILD_ID_MOBILITY],
+			"rarity": "rare"
+		}
+	]
+
+	var filtered_options: Array = []
+	for option: Dictionary in rare_upgrade_options:
+		if _is_upgrade_unlocked(option["id"]):
+			filtered_options.append(option)
+
+	return filtered_options
 
 # ============================================================================
 # GAME FLOW
@@ -731,6 +1205,8 @@ func apply_contact_damage(amount: int, source_position: Vector2) -> void:
 
 	_health = max(_health - amount, 0)
 	_hurt_flash_timer = DAMAGE_FLASH_SECONDS
+	_run_no_damage_time = 0.0
+	_play_world_audio_cue("player_hurt", 1.0)
 
 	var knockback_direction: float = sign(global_position.x - source_position.x)
 	if is_zero_approx(knockback_direction):
@@ -779,12 +1255,26 @@ func _update_death_state(delta: float) -> void:
 
 func _update_player_visuals() -> void:
 	var sprite_scale: Vector2 = Vector2.ONE
+	var horizontal_speed_ratio: float = clamp(abs(velocity.x) / max(sprint_speed + _move_speed_bonus, 1.0), 0.0, 1.0)
 	if _level_up_pulse_timer > 0.0:
 		var pulse_strength: float = _level_up_pulse_timer / LEVEL_UP_PULSE_SECONDS
 		sprite_scale += Vector2.ONE * pulse_strength * 0.12
 	if _stage_reward_pulse_timer > 0.0:
 		var stage_reward_pulse_strength: float = _stage_reward_pulse_timer / STAGE_REWARD_PULSE_SECONDS
 		sprite_scale += Vector2.ONE * stage_reward_pulse_strength * 0.08
+	if horizontal_speed_ratio > 0.0 and is_on_floor():
+		sprite_scale.x += horizontal_speed_ratio * 0.05
+		sprite_scale.y -= horizontal_speed_ratio * 0.02
+		_sprite.rotation = lerp(_sprite.rotation, -_facing_direction * horizontal_speed_ratio * MOVE_LEAN_MAX_RADIANS, 0.22)
+	else:
+		_sprite.rotation = lerp(_sprite.rotation, 0.0, 0.18)
+	if not is_on_floor():
+		sprite_scale.x += AIR_STRETCH_X
+		sprite_scale.y += AIR_STRETCH_Y
+	if _fire_pulse_timer > 0.0:
+		var fire_pulse_strength: float = _fire_pulse_timer / FIRE_PULSE_SECONDS
+		sprite_scale.x += fire_pulse_strength * 0.06
+		sprite_scale.y -= fire_pulse_strength * 0.03
 	if _kill_momentum_flash_timer > 0.0:
 		sprite_scale += Vector2.ONE * 0.08
 
@@ -855,6 +1345,8 @@ func _update_debug_health_display() -> void:
 		_current_level
 	]
 	health_text += "\nBD: %s" % String(_build_identity).capitalize()
+	health_text += " / %s" % get_build_archetype_label()
+	health_text += "\nMETA: %d | MST: %d" % [_meta_discovery_points, get_mastery_goal_count()]
 	if _is_dead:
 		health_text += "\n[DEAD]"
 	elif _pending_level_up_choices > 0:
